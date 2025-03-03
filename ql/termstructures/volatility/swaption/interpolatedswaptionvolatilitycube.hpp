@@ -66,9 +66,9 @@ namespace QuantLib {
         //@{
         const Matrix& volSpreads(Size i) const { return volSpreadsMatrix_[i]; }
         ext::shared_ptr<SmileSection> smileSectionImpl(const Date& optionDate,
-                                                       const Period& swapTenor) const override;
+                                                       const Period& swapTenor, bool spreadMode) const override;
         ext::shared_ptr<SmileSection> smileSectionImpl(Time optionTime,
-                                                       Time swapLength) const override;
+                                                       Time swapLength, bool spreadMode) const override;
         //@}
       private:
         mutable std::vector<Interpolation2D> volSpreadsInterpolator_;

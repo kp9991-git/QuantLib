@@ -74,7 +74,8 @@ namespace QuantLib {
         Volatility volatility(const Date& optionDate,
                               const Period& swapTenor,
                               Rate strike,
-                              bool extrapolate = false) const;
+                              bool extrapolate = false,
+                              bool spreadMode = false) const;
         //! returns the volatility for a given option time and swap tenor
         Volatility volatility(Time optionTime,
                               const Period& swapTenor,
@@ -197,17 +198,17 @@ namespace QuantLib {
                         const Date& end) const;
       protected:
         virtual ext::shared_ptr<SmileSection> smileSectionImpl(
-                                                const Date& optionDate,
-                                                const Period& swapTenor) const;
+            const Date& optionDate,
+            const Period& swapTenor, bool spreadMode) const;
         virtual ext::shared_ptr<SmileSection> smileSectionImpl(
-                                                Time optionTime,
-                                                Time swapLength) const = 0;
+            Time optionTime,
+            Time swapLength, bool spreadMode) const = 0;
         virtual Volatility volatilityImpl(const Date& optionDate,
                                           const Period& swapTenor,
-                                          Rate strike) const;
+                                          Rate strike, bool spreadMode) const;
         virtual Volatility volatilityImpl(Time optionTime,
                                           Time swapLength,
-                                          Rate strike) const = 0;
+                                          Rate strike, bool spreadMode) const = 0;
         virtual Real shiftImpl(const Date &optionDate,
                                const Period &swapTenor) const;
         virtual Real shiftImpl(Time optionTime, Time swapLength) const;
@@ -325,11 +326,12 @@ namespace QuantLib {
     SwaptionVolatilityStructure::volatility(const Date& optionDate,
                                             const Period& swapTenor,
                                             Rate strike,
-                                            bool extrapolate) const {
+                                            bool extrapolate,
+                                            bool spreadMode) const {
         checkSwapTenor(swapTenor, extrapolate);
         checkRange(optionDate, extrapolate);
         checkStrike(strike, extrapolate);
-        return volatilityImpl(optionDate, swapTenor, strike);
+        return volatilityImpl(optionDate, swapTenor, strike, spreadMode);
     }
 
     inline Volatility
@@ -341,7 +343,7 @@ namespace QuantLib {
         checkRange(optionDate, extrapolate);
         checkStrike(strike, extrapolate);
         Time optionTime = timeFromReference(optionDate);
-        return volatilityImpl(optionTime, swapLength, strike);
+        return volatilityImpl(optionTime, swapLength, strike, false);
     }
 
     inline Volatility
@@ -353,7 +355,7 @@ namespace QuantLib {
         checkRange(optionTime, extrapolate);
         checkStrike(strike, extrapolate);
         Time length = swapLength(swapTenor);
-        return volatilityImpl(optionTime, length, strike);
+        return volatilityImpl(optionTime, length, strike, false);
     }
 
     inline Volatility
@@ -364,7 +366,7 @@ namespace QuantLib {
         checkSwapTenor(swapLength, extrapolate);
         checkRange(optionTime, extrapolate);
         checkStrike(strike, extrapolate);
-        return volatilityImpl(optionTime, swapLength, strike);
+        return volatilityImpl(optionTime, swapLength, strike, false);
     }
 
     inline Real
@@ -411,7 +413,7 @@ namespace QuantLib {
                                               bool extrapolate) const {
         checkSwapTenor(swapTenor, extrapolate);
         checkRange(optionDate, extrapolate);
-        return smileSectionImpl(optionDate, swapTenor);
+        return smileSectionImpl(optionDate, swapTenor, false);
     }
 
     inline ext::shared_ptr<SmileSection>
@@ -448,25 +450,25 @@ namespace QuantLib {
                                               bool extrapolate) const {
         checkSwapTenor(swapLength, extrapolate);
         checkRange(optionTime, extrapolate);
-        return smileSectionImpl(optionTime, swapLength);
+        return smileSectionImpl(optionTime, swapLength, false);
     }
 
     // 4. default implementation of Date-based xxxImpl methods
     //    relying on the equivalent Time-based methods
     inline ext::shared_ptr<SmileSection>
     SwaptionVolatilityStructure::smileSectionImpl(const Date& optionDate,
-                                                  const Period& swapT) const {
-        return smileSectionImpl(timeFromReference(optionDate),
-                                swapLength(swapT));
+                                                  const Period& swapT, bool spreadMode) const {
+        return smileSectionImpl(timeFromReference(optionDate), swapLength(swapT), spreadMode);
     }
 
     inline Volatility
     SwaptionVolatilityStructure::volatilityImpl(const Date& optionDate,
                                                 const Period& swapTenor,
-                                                Rate strike) const {
+                                                Rate strike, 
+                                                bool spreadMode) const {
         return volatilityImpl(timeFromReference(optionDate),
-                              swapLength(swapTenor),
-                              strike);
+                              swapLength(swapTenor), strike,
+                              spreadMode);
     }
 
     inline Real

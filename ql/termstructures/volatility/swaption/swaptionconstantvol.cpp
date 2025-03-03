@@ -80,7 +80,7 @@ namespace QuantLib {
 
     ext::shared_ptr<SmileSection>
     ConstantSwaptionVolatility::smileSectionImpl(const Date& d,
-                                                 const Period&) const {
+                                                 const Period&, bool spreadMode) const {
         Volatility atmVol = volatility_->value();
         return ext::shared_ptr<SmileSection>(
             new FlatSmileSection(d, atmVol, dayCounter(), referenceDate(),
@@ -89,7 +89,7 @@ namespace QuantLib {
 
     ext::shared_ptr<SmileSection>
     ConstantSwaptionVolatility::smileSectionImpl(Time optionTime,
-                                                 Time) const {
+                                                 Time, bool spreadMode) const {
         Volatility atmVol = volatility_->value();
         return ext::shared_ptr<SmileSection>(
             new FlatSmileSection(optionTime, atmVol, dayCounter(), Null<Rate>(),
@@ -98,13 +98,13 @@ namespace QuantLib {
 
     Volatility ConstantSwaptionVolatility::volatilityImpl(const Date&,
                                                           const Period&,
-                                                          Rate) const {
+                                                          Rate, bool spreadMode) const {
         return volatility_->value();
     }
 
     Volatility ConstantSwaptionVolatility::volatilityImpl(Time,
                                                           Time,
-                                                          Rate) const {
+                                                          Rate, bool spreadMode) const {
         return volatility_->value();
     }
 

@@ -67,7 +67,7 @@ namespace QuantLib {
 
     ext::shared_ptr<SmileSection>
     InterpolatedSwaptionVolatilityCube::smileSectionImpl(Time optionTime,
-                                       Time swapLength) const {
+                                                         Time swapLength, bool spreadMode) const {
 
         calculate();
         Date optionDate = optionDateFromTime(optionTime);
@@ -79,12 +79,12 @@ namespace QuantLib {
                 ? swapIndexBase_->fixingCalendar().adjust(optionDate, Following)
                 : shortSwapIndexBase_->fixingCalendar().adjust(optionDate,
                                                                Following);
-        return smileSectionImpl(optionDate, swapTenor);
+        return smileSectionImpl(optionDate, swapTenor, spreadMode);
     }
 
     ext::shared_ptr<SmileSection>
     InterpolatedSwaptionVolatilityCube::smileSectionImpl(const Date& optionDate,
-                                       const Period& swapTenor) const {
+                                                         const Period& swapTenor, bool spreadMode) const {
         calculate();
         Rate atmForward = atmStrike(optionDate, swapTenor);
         Volatility atmVol = atmVol_->volatility(optionDate,
@@ -97,7 +97,11 @@ namespace QuantLib {
         stdDevs.reserve(nStrikes_);
         Time length = swapLength(swapTenor);
         for (Size i=0; i<nStrikes_; ++i) {
-            strikes.push_back(atmForward + strikeSpreads_[i]);
+            if (spreadMode) {
+                strikes.push_back(strikeSpreads_[i]);
+            } else {
+                strikes.push_back(atmForward + strikeSpreads_[i]);
+            }
             stdDevs.push_back(exerciseTimeSqrt*(
                 atmVol + volSpreadsInterpolator_[i](length, optionTime)));
         }

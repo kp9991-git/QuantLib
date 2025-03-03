@@ -95,9 +95,9 @@ namespace QuantLib {
       protected:
         void registerWithVolatilitySpread();
         virtual Size requiredNumberOfStrikes() const { return 2; }
-        Volatility volatilityImpl(Time optionTime, Time swapLength, Rate strike) const override;
+        Volatility volatilityImpl(Time optionTime, Time swapLength, Rate strike, bool spreadMode) const override;
         Volatility
-        volatilityImpl(const Date& optionDate, const Period& swapTenor, Rate strike) const override;
+        volatilityImpl(const Date& optionDate, const Period& swapTenor, Rate strike, bool spreadMode) const override;
         Real shiftImpl(Time optionTime, Time swapLength) const override;
         Handle<SwaptionVolatilityStructure> atmVol_;
         Size nStrikes_;
@@ -116,17 +116,17 @@ namespace QuantLib {
     }
 
     inline Volatility SwaptionVolatilityCube::volatilityImpl(
-                                                        Time optionTime,
-                                                        Time swapLength,
-                                                        Rate strike) const {
-        return smileSectionImpl(optionTime, swapLength)->volatility(strike);
+        Time optionTime,
+        Time swapLength,
+        Rate strike, bool spreadMode) const {
+        return smileSectionImpl(optionTime, swapLength, false)->volatility(strike);
     }
 
     inline Volatility SwaptionVolatilityCube::volatilityImpl(
-                                                    const Date& optionDate,
-                                                    const Period& swapTenor,
-                                                    Rate strike) const {
-        return smileSectionImpl(optionDate, swapTenor)->volatility(strike);
+        const Date& optionDate,
+        const Period& swapTenor,
+        Rate strike, bool spreadMode) const {
+        return smileSectionImpl(optionDate, swapTenor, spreadMode)->volatility(strike);
     }
 
     inline Real SwaptionVolatilityCube::shiftImpl(Time optionTime,

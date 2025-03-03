@@ -153,8 +153,8 @@ namespace QuantLib {
         // to be further investigated
         //ext::shared_ptr<SmileSection> smileSectionImpl(const Date&,
         //                                                 const Period&) const;
-        ext::shared_ptr<SmileSection> smileSectionImpl(Time, Time) const override;
-        Volatility volatilityImpl(Time optionTime, Time swapLength, Rate strike) const override;
+        ext::shared_ptr<SmileSection> smileSectionImpl(Time, Time, bool spreadMode) const override;
+        Volatility volatilityImpl(Time optionTime, Time swapLength, Rate strike, bool spreadMode) const override;
         Real shiftImpl(Time optionTime, Time swapLength) const override;
 
       private:
@@ -190,7 +190,7 @@ namespace QuantLib {
 
     inline Volatility SwaptionVolatilityMatrix::volatilityImpl(Time optionTime,
                                                                Time swapLength,
-                                                               Rate) const {
+                                                               Rate, bool spreadMode) const {
         calculate();
         return interpolation_(swapLength, optionTime, true);
     }

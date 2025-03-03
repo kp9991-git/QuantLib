@@ -141,7 +141,7 @@ namespace QuantLib {
         //! \name SwaptionVolatilityCube interface
         //@{
         ext::shared_ptr<SmileSection> smileSectionImpl(Time optionTime,
-                                                       Time swapLength) const override;
+                                                       Time swapLength, bool spreadMode) const override;
         //@}
         //! \name Other inspectors
         //@{
@@ -787,7 +787,7 @@ namespace QuantLib {
 
     template<class Model> ext::shared_ptr<SmileSection>
     XabrSwaptionVolatilityCube<Model>::smileSectionImpl(Time optionTime,
-                                       Time swapLength) const {
+                                                        Time swapLength, bool spreadMode) const {
         if (isAtmCalibrated_)
             return smileSection(optionTime, swapLength, denseParameters_);
         else

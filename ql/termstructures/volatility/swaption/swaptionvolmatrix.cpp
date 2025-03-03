@@ -318,9 +318,9 @@ namespace QuantLib {
 
     ext::shared_ptr<SmileSection>
     SwaptionVolatilityMatrix::smileSectionImpl(Time optionTime,
-                                               Time swapLength) const {
+                                               Time swapLength, bool spreadMode) const {
         // dummy strike
-        Volatility atmVol = volatilityImpl(optionTime, swapLength, 0.05);
+        Volatility atmVol = volatilityImpl(optionTime, swapLength, 0.05, false);
         return ext::shared_ptr<SmileSection>(new FlatSmileSection(
             optionTime, atmVol, dayCounter(), Null<Real>(), volatilityType(),
             shift(optionTime, swapLength, true)));

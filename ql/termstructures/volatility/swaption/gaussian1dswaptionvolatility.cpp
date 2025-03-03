@@ -36,7 +36,7 @@ namespace QuantLib {
       maxSwapTenor_(100 * Years) {}
 
     ext::shared_ptr<SmileSection>
-    Gaussian1dSwaptionVolatility::smileSectionImpl(const Date& d, const Period& tenor) const {
+    Gaussian1dSwaptionVolatility::smileSectionImpl(const Date& d, const Period& tenor, bool spreadMode) const {
         ext::shared_ptr<SmileSection> tmp = ext::make_shared<Gaussian1dSmileSection>(
             d, indexBase_->clone(tenor), model_, this->dayCounter(), engine_);
         return tmp;
@@ -44,7 +44,7 @@ namespace QuantLib {
 
 ext::shared_ptr<SmileSection>
 Gaussian1dSwaptionVolatility::smileSectionImpl(Time optionTime,
-                                               Time swapLength) const {
+                                               Time swapLength, bool spreadMode) const {
     DateHelper hlp(*this, optionTime);
     NewtonSafe newton;
     Date d(static_cast<Date::serial_type>(newton.solve(
@@ -55,18 +55,18 @@ Gaussian1dSwaptionVolatility::smileSectionImpl(Time optionTime,
         static_cast<Integer>(Rounding(0)(swapLength * 12.0)),
         Months);
     d = indexBase_->fixingCalendar().adjust(d);
-    return smileSectionImpl(d, tenor);
+    return smileSectionImpl(d, tenor, false);
 }
 
 Volatility Gaussian1dSwaptionVolatility::volatilityImpl(const Date &d,
                                                         const Period &tenor,
-                                                        Rate strike) const {
-    return smileSectionImpl(d, tenor)->volatility(strike);
+                                                        Rate strike, bool spreadMode) const {
+    return smileSectionImpl(d, tenor, false)->volatility(strike);
 }
 
 Volatility Gaussian1dSwaptionVolatility::volatilityImpl(Time optionTime,
                                                         Time swapLength,
-                                                        Rate strike) const {
-    return smileSectionImpl(optionTime, swapLength)->volatility(strike);
+                                                        Rate strike, bool spreadMode) const {
+    return smileSectionImpl(optionTime, swapLength, false)->volatility(strike);
 }
 }

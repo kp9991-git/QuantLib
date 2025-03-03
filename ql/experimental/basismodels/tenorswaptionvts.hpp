@@ -111,13 +111,13 @@ namespace QuantLib {
         const Period& maxSwapTenor() const override { return baseVTS_->maxSwapTenor(); }
 
         ext::shared_ptr<SmileSection> smileSectionImpl(Time optionTime,
-                                                       Time swapLength) const override {
+                                                       Time swapLength, bool spreadMode) const override {
             return ext::shared_ptr<SmileSection>(
                 new TenorSwaptionSmileSection(*this, optionTime, swapLength));
         }
 
-        Volatility volatilityImpl(Time optionTime, Time swapLength, Rate strike) const override {
-            return smileSectionImpl(optionTime, swapLength)->volatility(strike, Normal, 0.0);
+        Volatility volatilityImpl(Time optionTime, Time swapLength, Rate strike, bool spreadMode) const override {
+            return smileSectionImpl(optionTime, swapLength, false)->volatility(strike, Normal, 0.0);
         }
 
         // the methodology is designed for normal volatilities

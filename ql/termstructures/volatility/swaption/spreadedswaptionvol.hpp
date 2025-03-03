@@ -61,12 +61,12 @@ namespace QuantLib {
         //! \name SwaptionVolatilityStructure interface
         //@{
         ext::shared_ptr<SmileSection> smileSectionImpl(const Date& optionDate,
-                                                       const Period& swapTenor) const override;
+                                                       const Period& swapTenor, bool spreadMode) const override;
         ext::shared_ptr<SmileSection> smileSectionImpl(Time optionTime,
-                                                       Time swapLength) const override;
+                                                       Time swapLength, bool spreadMode) const override;
         Volatility
-        volatilityImpl(const Date& optionDate, const Period& swapTenor, Rate strike) const override;
-        Volatility volatilityImpl(Time optionTime, Time swapLength, Rate strike) const override;
+        volatilityImpl(const Date& optionDate, const Period& swapTenor, Rate strike, bool spreadMode) const override;
+        Volatility volatilityImpl(Time optionTime, Time swapLength, Rate strike, bool spreadMode) const override;
         Real shiftImpl(Time optionTime, Time swapLength) const override;
         //@}
       private:
