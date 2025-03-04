@@ -237,7 +237,6 @@ namespace QuantLib {
         // extract the underlying irregular swap
         ext::shared_ptr<IrregularSwap> swap_ = this->arguments_.swap;
 
-
         // Reshuffle spread from float to fixed (, i.e. remove spread from float side by finding the
         // adjusted fixed coupon such that the NPV of the swap stays constant).
         Leg fixedLeg = swap_->fixedLeg();
@@ -292,10 +291,14 @@ namespace QuantLib {
             fixedCFS.push_back(newCpn);
         }
 
-
         // this is the irregular swap with spread removed
         swap_ = ext::make_shared<IrregularSwap>(arguments_.swap->type(), fixedCFS, floatCFS);
 
+        // set the engine so that various calcs on the swap could be possible
+        auto engine = ext::make_shared<DiscountingSwapEngine>(termStructure_, false);
+        ObservableSettings::instance().disableUpdates();
+        swap_->setPricingEngine(engine);
+        ObservableSettings::instance().enableUpdates();
 
         // Sets up the basket by implementing the methodology described in
         // P.S.Hagan "Callable Swaps and Bermudan 'Exercise into Swaptions'"

@@ -172,6 +172,8 @@ namespace QuantLib {
     }
 
     void IrregularSwap::fetchResults(const PricingEngine::results* r) const {
+        static const Spread basisPoint = 1.0e-4;
+
         Swap::fetchResults(r);
 
         const auto* results = dynamic_cast<const IrregularSwap::results*>(r);
@@ -186,12 +188,12 @@ namespace QuantLib {
         if (fairRate_ == Null<Rate>()) {
             // calculate it from other results
             if (legBPS_[0] != Null<Real>()) 
-                fairRate_ = 0.0; // Debug: legs_[0]->fixedRate_ - NPV_/(legBPS_[0]/basisPoint);
+                fairRate_ = std::fabs(legNPV_[1] / (legBPS_[0]/basisPoint));
         }
         if (fairSpread_ == Null<Spread>()) {
             // ditto
             if (legBPS_[1] != Null<Real>())
-                fairSpread_ = 0.0; //DEBUG: spread_ - NPV_/(legBPS_[1]/basisPoint);
+                fairSpread_ = 0; // spread_ - NPV_/(legBPS_[1]/basisPoint);
         }
     }
 
