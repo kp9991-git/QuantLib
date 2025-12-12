@@ -754,6 +754,7 @@ set(QL_SOURCES
     pricingengines/vanilla/batesengine.cpp
     pricingengines/vanilla/bjerksundstenslandengine.cpp
     pricingengines/vanilla/coshestonengine.cpp
+    pricingengines/vanilla/cashdividendeuropeanengine.cpp
     pricingengines/vanilla/discretizedvanillaoption.cpp
     pricingengines/vanilla/exponentialfittinghestonengine.cpp
     pricingengines/vanilla/fdbatesvanillaengine.cpp
@@ -813,7 +814,9 @@ set(QL_SOURCES
     termstructures/credit/hazardratestructure.cpp
     termstructures/credit/survivalprobabilitystructure.cpp
     termstructures/defaulttermstructure.cpp
+    termstructures/globalbootstrap.cpp
     termstructures/globalbootstrapvars.cpp
+    termstructures/multicurve.cpp
     termstructures/inflation/inflationhelpers.cpp
     termstructures/inflation/seasonality.cpp
     termstructures/inflationtermstructure.cpp
@@ -1993,6 +1996,7 @@ set(QL_HEADERS
     pricingengines/vanilla/batesengine.hpp
     pricingengines/vanilla/binomialengine.hpp
     pricingengines/vanilla/bjerksundstenslandengine.hpp
+    pricingengines/vanilla/cashdividendeuropeanengine.hpp
     pricingengines/vanilla/coshestonengine.hpp
     pricingengines/vanilla/discretizedvanillaoption.hpp
     pricingengines/vanilla/exponentialfittinghestonengine.hpp
@@ -2072,6 +2076,7 @@ set(QL_HEADERS
     termstructures/defaulttermstructure.hpp
     termstructures/globalbootstrap.hpp
     termstructures/globalbootstrapvars.hpp
+    termstructures/multicurve.hpp
     termstructures/inflation/inflationhelpers.hpp
     termstructures/inflation/inflationtraits.hpp
     termstructures/inflation/interpolatedyoyinflationcurve.hpp
