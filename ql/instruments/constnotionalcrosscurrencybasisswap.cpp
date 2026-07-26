@@ -3,6 +3,7 @@
 /*
  Copyright (C) 2016 Quaternion Risk Management Ltd
  Copyright (C) 2025 Paolo D'Elia
+ Copyright (C) 2026 Kyrylo Protsenko
 
  This file is part of QuantLib, a free-software/open-source library
  for financial quantitative analysts and developers - http://quantlib.org/
@@ -114,11 +115,15 @@ void ConstNotionalCrossCurrencyBasisSwap::initialize() {
 
     // Add notional exchanges on payLeg
     ConstNotionalCrossCurrencySwap::addNotionalExchangesToLeg(legs_[0], paySchedule_.calendar(),
-                                                              earliestDate, maturityDate, payNominal_);
+                                                              earliestDate, maturityDate,
+                                                              paySchedule_.businessDayConvention(),
+                                                              payNominal_);
 
     // Add notional exchanges on recLeg
     ConstNotionalCrossCurrencySwap::addNotionalExchangesToLeg(legs_[1], recSchedule_.calendar(),
-                                                              earliestDate, maturityDate, recNominal_);
+                                                              earliestDate, maturityDate,
+                                                              recSchedule_.businessDayConvention(),
+                                                              recNominal_);
 
     // Register the instrument with all cashflows on each leg.
     for (Size legNo = 0; legNo < 2; legNo++) {

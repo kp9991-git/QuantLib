@@ -1,6 +1,8 @@
 /* -*- mode: c++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 
 /*
+ Copyright (C) 2026 Kyrylo Protsenko
+
  This file is part of QuantLib, a free-software/open-source library
  for financial quantitative analysts and developers - http://quantlib.org/
 
@@ -297,9 +299,10 @@ BOOST_AUTO_TEST_CASE(testFxResetObservationDatesAndProjection) {
         MtMCrossCurrencyBasisSwap::Type::PayFxBaseCurrency, eurNominal, EURCurrency(), sch,
         eurIndex, 0.0, 1.0, eurNominal * spotFx, USDCurrency(), sch, usdIndex, 0.0, 1.0,
         /*isFxBaseCurrencyLegResettable=*/false, fxResetConvention);
+    BOOST_CHECK(!swap->fxResetConvention().fixingCalendar().empty());
     swap->setPricingEngine(ext::make_shared<DiscountingMtMCrossCurrencyBasisSwapEngine>(
         USDCurrency(), usdCurve, EURCurrency(), eurCurve, makeQuoteHandle(spotFx)));
-    BOOST_CHECK_NO_THROW(swap->NPV());
+    Real automaticallyDatedNpv = swap->NPV();
 
     ext::shared_ptr<FxResetCoupon> firstCoupon;
     ext::shared_ptr<FxResetNotionalExchange> firstExchange;
@@ -315,6 +318,9 @@ BOOST_AUTO_TEST_CASE(testFxResetObservationDatesAndProjection) {
     BOOST_REQUIRE(firstExchange != nullptr);
     BOOST_CHECK_EQUAL(firstCoupon->fxResetDate(), Date(3, July, 2024));
     BOOST_CHECK_EQUAL(firstCoupon->fxResetValueDate(), start);
+    Date spotFxSettleDate = fxResetConvention.valueDate(today);
+    BOOST_CHECK_EQUAL(spotFxSettleDate, Date(3, July, 2024));
+    BOOST_CHECK_EQUAL(fxResetConvention.valueDate(firstCoupon->fxResetDate()), start);
     BOOST_CHECK(!firstExchange->previousReset());
     BOOST_REQUIRE(firstExchange->currentReset());
     BOOST_CHECK_EQUAL(firstExchange->currentReset()->fixingDate(), firstCoupon->fxResetDate());
@@ -323,15 +329,30 @@ BOOST_AUTO_TEST_CASE(testFxResetObservationDatesAndProjection) {
     BOOST_CHECK(!firstExchange->fxResetPricer());
 
     auto fxResetPricer = ext::make_shared<DiscountingFxResetPricer>(
-        EURCurrency(), USDCurrency(), eurCurve, usdCurve, makeQuoteHandle(spotFx), true);
+        EURCurrency(), USDCurrency(), eurCurve, usdCurve, makeQuoteHandle(spotFx), true,
+        spotFxSettleDate);
     setFxResetPricer(swap->resettingLeg(), fxResetPricer);
 
-    Real expectedForward = spotFx * eurCurve->discount(start) / usdCurve->discount(start);
+    Real expectedForward = spotFx * usdCurve->discount(spotFxSettleDate) /
+                           eurCurve->discount(spotFxSettleDate) *
+                           eurCurve->discount(start) / usdCurve->discount(start);
     BOOST_CHECK_CLOSE(firstCoupon->nominal(), eurNominal * expectedForward, 1.0e-10);
 
-    Real fixingDateForward = spotFx * eurCurve->discount(firstCoupon->fxResetDate()) /
-                             usdCurve->discount(firstCoupon->fxResetDate());
-    BOOST_CHECK(std::fabs(firstCoupon->nominal() - eurNominal * fixingDateForward) > 1.0);
+    // Omitting the engine's explicit spot settlement date must derive the same
+    // date from the swap's reset convention.
+    swap->setPricingEngine(ext::make_shared<DiscountingMtMCrossCurrencyBasisSwapEngine>(
+        USDCurrency(), usdCurve, EURCurrency(), eurCurve, makeQuoteHandle(spotFx),
+        std::nullopt, Date(), Date(), spotFxSettleDate));
+    BOOST_CHECK_SMALL(swap->NPV() - automaticallyDatedNpv, 1.0e-10 * eurNominal);
+
+    // The equivalent reference-date FX quote must give the same result when an
+    // explicit reference-date settlement overrides the convention.
+    Real referenceDateFx = spotFx * usdCurve->discount(spotFxSettleDate) /
+                           eurCurve->discount(spotFxSettleDate);
+    swap->setPricingEngine(ext::make_shared<DiscountingMtMCrossCurrencyBasisSwapEngine>(
+        USDCurrency(), usdCurve, EURCurrency(), eurCurve, makeQuoteHandle(referenceDateFx),
+        std::nullopt, Date(), Date(), today));
+    BOOST_CHECK_SMALL(swap->NPV() - automaticallyDatedNpv, 1.0e-10 * eurNominal);
 }
 
 BOOST_AUTO_TEST_CASE(testResetFixingStateUsesEvaluationDate) {
@@ -500,6 +521,7 @@ BOOST_AUTO_TEST_CASE(testResettableLegCashFlowsMatchLegResults) {
         MtMCrossCurrencyBasisSwap::Type::PayFxBaseCurrency, usdNominal, USDCurrency(), sch,
         usdIndex, 0.0, 1.0, usdNominal / spotFx, EURCurrency(), sch, eurIndex, 10.0e-4, 1.0,
         /*isFxBaseCurrencyLegResettable=*/false);
+    BOOST_CHECK(swap->fxResetConvention().fixingCalendar().empty());
     swap->setPricingEngine(ext::make_shared<DiscountingMtMCrossCurrencyBasisSwapEngine>(
         USDCurrency(), usdCurve, EURCurrency(), eurCurve, makeQuoteHandle(spotFx)));
 
@@ -963,7 +985,8 @@ BOOST_AUTO_TEST_CASE(testResetExchangePaymentDates) {
 
     TARGET cal;
     // Unadjusted schedule with period-end dates falling on weekends: the
-    // coupons still pay on the following business day.
+    // coupons are lagged, while principal exchanges remain on the effective
+    // and maturity dates adjusted with the explicit payment convention.
     Date start(15, Sep, 2018); // a Saturday
     Schedule sch(start, start + 1 * Years, 3 * Months, cal, Unadjusted, Unadjusted,
                  DateGeneration::Forward, false);
@@ -974,14 +997,16 @@ BOOST_AUTO_TEST_CASE(testResetExchangePaymentDates) {
         MtMCrossCurrencyBasisSwap::Type::PayFxBaseCurrency, usdNominal, USDCurrency(), sch,
         usdIndex, 0.0, 1.0, usdNominal / spotFx, EURCurrency(), sch, eurIndex, 0.0, 1.0,
         /*isFxBaseCurrencyLegResettable=*/false, FxResetConvention(),
-        /*fxBasePaymentLag=*/2, /*fxQuotePaymentLag=*/2);
+        /*fxBasePaymentLag=*/2, /*fxQuotePaymentLag=*/2,
+        /*fxBasePaymentConvention=*/Preceding,
+        /*fxQuotePaymentConvention=*/Preceding);
     swap->setPricingEngine(ext::make_shared<DiscountingMtMCrossCurrencyBasisSwapEngine>(
         USDCurrency(), usdCurve, EURCurrency(), eurCurve, makeQuoteHandle(spotFx)));
     BOOST_CHECK_NO_THROW(swap->NPV());
 
     std::vector<ext::shared_ptr<FxResetNotionalExchange> > exchanges;
     std::vector<ext::shared_ptr<Coupon> > coupons;
-    for (const auto& cf : swap->resettingLeg()) {
+    for (const auto& cf : swap->leg(swap->resettingLegIndex())) {
         if (auto exchange = ext::dynamic_pointer_cast<FxResetNotionalExchange>(cf)) {
             exchanges.push_back(exchange);
         } else if (auto coupon = ext::dynamic_pointer_cast<Coupon>(cf)) {
@@ -990,8 +1015,8 @@ BOOST_AUTO_TEST_CASE(testResetExchangePaymentDates) {
     }
 
     BOOST_REQUIRE_EQUAL(exchanges.size(), coupons.size() + 1);
-    BOOST_CHECK_EQUAL(exchanges.front()->date(), cal.adjust(start, Following));
-    BOOST_CHECK_EQUAL(exchanges.back()->date(), cal.adjust(start + 1 * Years, Following));
+    BOOST_CHECK_EQUAL(exchanges.front()->date(), cal.adjust(start, Preceding));
+    BOOST_CHECK_EQUAL(exchanges.back()->date(), cal.adjust(start + 1 * Years, Preceding));
 
     for (Size i = 1; i + 1 < exchanges.size(); ++i)
         BOOST_CHECK_EQUAL(exchanges[i]->date(), coupons[i - 1]->date());

@@ -1,6 +1,8 @@
 /* -*- mode: c++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 
 /*
+ Copyright (C) 2026 Kyrylo Protsenko
+
  This file is part of QuantLib, a free-software/open-source library
  for financial quantitative analysts and developers - http://quantlib.org/
 
@@ -85,15 +87,19 @@ class MtMCrossCurrencyBasisSwap : public CrossCurrencySwap {
         \param fxResetConvention  Convention used to derive each FX fixing date
                                    from its accrual-start value date.  The default
                                    preserves the legacy behavior of fixing on the
-                                   accrual start date.  An empty fixing calendar
-                                   is replaced by the resettable leg's schedule
-                                   calendar.
+                                   accrual start date.  For a non-zero fixing lag,
+                                   an empty fixing calendar is replaced by the
+                                   resettable leg's schedule calendar.
         \param fxBasePaymentLag  Coupon payment lag for the base-currency leg.
         \param fxQuotePaymentLag Coupon payment lag for the quote-currency leg.
         \param fxBasePaymentConvention  Payment convention for the base-currency
                                         leg's coupons.
         \param fxQuotePaymentConvention Payment convention for the quote-currency
                                         leg and its notional exchanges.
+        Initial and final notional exchanges remain on the effective and
+        maturity dates, adjusted by their leg's payment convention.  Interim
+        reset exchanges settle with the coupons.
+
         \param useIndexedCoupons If provided, overrides the global IborCoupon
                                   setting for both legs.
     */
@@ -274,6 +280,8 @@ class MtMCrossCurrencyBasisSwap::arguments : public CrossCurrencySwap::arguments
     Size resettingLegIndex = Null<Size>();
     //! index of the constant-notional leg whose notional is converted at reset
     Size constantLegIndex = Null<Size>();
+    //! convention for the FX fixing and its associated spot value date
+    FxResetConvention fxResetConvention;
     Spread fxBaseSpread = Null<Spread>();
     Spread fxQuoteSpread = Null<Spread>();
     void validate() const override;

@@ -3,6 +3,7 @@
 /*
  Copyright (C) 2016 Quaternion Risk Management Ltd
  Copyright (C) 2025 Paolo D'Elia
+ Copyright (C) 2026 Kyrylo Protsenko
 
  This file is part of QuantLib, a free-software/open-source library
  for financial quantitative analysts and developers - http://quantlib.org/
@@ -116,28 +117,28 @@ void CrossCurrencySwap::addNotionalExchangesToLeg(Leg& leg,
                                                   const Calendar& calendar,
                                                   const Date earliestDate,
                                                   const Date maturityDate,
+                                                  const BusinessDayConvention legBdc,
                                                   Real nominal) {
     // Principal exchanges settle on the effective and maturity dates: the
     // payment lag belongs to coupon payments only.  The dates are adjusted
-    // with Following — matching the legs' default payment adjustment — so
-    // that an unadjusted schedule cannot put an exchange on a non-business
-    // day, and both legs of the swap exchange notionals on the same date.
+    // with the leg's payment convention.
     // Initial notional exchange
-    Date aDate = calendar.adjust(earliestDate, Following);
+    Date aDate = calendar.adjust(earliestDate, legBdc);
     ext::shared_ptr<CashFlow> aCashflow = ext::make_shared<SimpleCashFlow>(-nominal, aDate);
     leg.insert(leg.begin(), aCashflow);
 
     // Final notional exchange
-    aDate = calendar.adjust(maturityDate, Following);
+    aDate = calendar.adjust(maturityDate, legBdc);
     aCashflow = ext::make_shared<SimpleCashFlow>(nominal, aDate);
     leg.push_back(aCashflow);
 
     // A lagged final coupon can pay after the maturity-date exchange.
+    sortLegByDate(leg);
+}
+
+void CrossCurrencySwap::sortLegByDate(Leg& leg) {
     std::stable_sort(leg.begin(), leg.end(),
-                     [](const ext::shared_ptr<CashFlow>& lhs,
-                        const ext::shared_ptr<CashFlow>& rhs) {
-                         return lhs->date() < rhs->date();
-                     });
+                     earlier_than<ext::shared_ptr<CashFlow>>());
 }
 
 } // namespace QuantLib

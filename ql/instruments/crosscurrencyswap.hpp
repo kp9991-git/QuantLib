@@ -3,6 +3,7 @@
 /*
  Copyright (C) 2016 Quaternion Risk Management Ltd
  Copyright (C) 2025 Paolo D'Elia
+ Copyright (C) 2026 Kyrylo Protsenko
 
  This file is part of QuantLib, a free-software/open-source library
  for financial quantitative analysts and developers - http://quantlib.org/
@@ -127,7 +128,9 @@ class CrossCurrencySwap : public Swap {
                                           const Calendar& calendar,
                                           Date earliestDate,
                                           Date maturityDate,
+                                          BusinessDayConvention legBdc,
                                           Real nominal);
+    static void sortLegByDate(Leg& leg);
 
     std::vector<Currency> currencies_;
 

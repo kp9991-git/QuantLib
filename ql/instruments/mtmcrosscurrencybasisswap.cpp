@@ -1,6 +1,8 @@
 /* -*- mode: c++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 
 /*
+ Copyright (C) 2026 Kyrylo Protsenko
+
  This file is part of QuantLib, a free-software/open-source library
  for financial quantitative analysts and developers - http://quantlib.org/
 
@@ -20,7 +22,6 @@
 #include <ql/cashflows/iborcoupon.hpp>
 #include <ql/cashflows/overnightindexedcoupon.hpp>
 #include <ql/instruments/mtmcrosscurrencybasisswap.hpp>
-#include <algorithm>
 #include <utility>
 
 namespace QuantLib {
@@ -53,7 +54,7 @@ MtMCrossCurrencyBasisSwap::MtMCrossCurrencyBasisSwap(
   isFxBaseCurrencyLegResettable_(isFxBaseCurrencyLegResettable),
   fxResetConvention_(
       fxResetConvention.fixingDays(),
-      fxResetConvention.fixingCalendar().empty() ?
+      fxResetConvention.fixingDays() != 0 && fxResetConvention.fixingCalendar().empty() ?
           (isFxBaseCurrencyLegResettable_ ? fxBaseSchedule_.calendar() :
                                            fxQuoteSchedule_.calendar()) :
           fxResetConvention.fixingCalendar()),
@@ -145,6 +146,8 @@ void MtMCrossCurrencyBasisSwap::initialize() {
 
     Size resettingLegNo = resettingLegIndex();
     const Schedule& resettingSchedule = resettingLegNo == 0 ? fxBaseSchedule_ : fxQuoteSchedule_;
+    BusinessDayConvention paymentConvention =
+        resettingLegNo == 0 ? fxBasePaymentConvention_ : fxQuotePaymentConvention_;
     Calendar paymentCalendar = resettingSchedule.calendar();
 
     Leg resettingLeg;
@@ -156,11 +159,12 @@ void MtMCrossCurrencyBasisSwap::initialize() {
         QL_REQUIRE(coupon, "unexpected non-coupon cash flow on the resettable leg");
         FxReset reset = fxResetConvention_.reset(coupon->accrualStartDate());
         // Interim exchanges settle with the coupons.  The initial exchange is
-        // made on the effective date instead of being delayed with the coupons.
+        // made on the effective date, adjusted with the leg's payment
+        // convention but without its coupon payment lag.
         Date exchangeDate =
             previousPaymentDate != Date() ?
                 previousPaymentDate :
-                paymentCalendar.adjust(earliestDate, Following);
+                paymentCalendar.adjust(earliestDate, paymentConvention);
         resettingLeg.push_back(ext::make_shared<FxResetNotionalExchange>(
             exchangeDate, constantLegNotional(), previousReset, reset));
         resettingLeg.push_back(
@@ -169,23 +173,21 @@ void MtMCrossCurrencyBasisSwap::initialize() {
         previousPaymentDate = coupon->date();
     }
     resettingLeg.push_back(ext::make_shared<FxResetNotionalExchange>(
-        paymentCalendar.adjust(maturityDate, Following),
+        paymentCalendar.adjust(maturityDate, paymentConvention),
         constantLegNotional(), previousReset, std::nullopt));
-    std::stable_sort(resettingLeg.begin(), resettingLeg.end(),
-                     [](const ext::shared_ptr<CashFlow>& lhs,
-                        const ext::shared_ptr<CashFlow>& rhs) {
-                         return lhs->date() < rhs->date();
-                     });
+    sortLegByDate(resettingLeg);
     legs_[resettingLegNo] = resettingLeg;
 
     // Only the constant-notional leg gets the inception/maturity exchange flows.
     if (resettingLegNo != 0)
-        CrossCurrencySwap::addNotionalExchangesToLeg(legs_[0], fxBaseSchedule_.calendar(),
-                                                     earliestDate, maturityDate, fxBaseNominal_);
+        CrossCurrencySwap::addNotionalExchangesToLeg(
+            legs_[0], fxBaseSchedule_.calendar(), earliestDate, maturityDate,
+            fxBasePaymentConvention_, fxBaseNominal_);
 
     if (resettingLegNo != 1)
-        CrossCurrencySwap::addNotionalExchangesToLeg(legs_[1], fxQuoteSchedule_.calendar(),
-                                                     earliestDate, maturityDate, fxQuoteNominal_);
+        CrossCurrencySwap::addNotionalExchangesToLeg(
+            legs_[1], fxQuoteSchedule_.calendar(), earliestDate, maturityDate,
+            fxQuotePaymentConvention_, fxQuoteNominal_);
 
     for (Size legNo = 0; legNo < 2; ++legNo) {
         for (auto& cf : legs_[legNo])
@@ -203,6 +205,7 @@ void MtMCrossCurrencyBasisSwap::setupArguments(PricingEngine::arguments* args) c
 
     arguments->resettingLegIndex = resettingLegIndex();
     arguments->constantLegIndex = constantLegIndex();
+    arguments->fxResetConvention = fxResetConvention_;
     arguments->fxBaseSpread = fxBaseSpread_;
     arguments->fxQuoteSpread = fxQuoteSpread_;
 }

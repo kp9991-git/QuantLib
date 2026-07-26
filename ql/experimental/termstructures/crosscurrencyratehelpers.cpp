@@ -3,6 +3,7 @@
 /*
  Copyright (C) 2021 Marcin Rybacki
  Copyright (C) 2025 Uzair Beg
+ Copyright (C) 2026 Kyrylo Protsenko
 
  This file is part of QuantLib, a free-software/open-source library
  for financial quantitative analysts and developers - http://quantlib.org/
@@ -162,10 +163,10 @@ namespace QuantLib {
         maturityDate_ = std::max(CashFlows::maturityDate(firstLeg),
                                  CashFlows::maturityDate(secondLeg));
 
-        // Principal exchanges settle on the effective and maturity dates,
-        // adjusted with Following to match the instruments' notional exchanges.
-        initialNotionalExchangeDate_ = calendar_.adjust(earliestDate_, Following);
-        finalNotionalExchangeDate_   = calendar_.adjust(maturityDate_, Following);
+        // Principal exchanges settle on the effective and maturity dates;
+        // payment lag applies only to coupons.
+        initialNotionalExchangeDate_ = calendar_.adjust(earliestDate_, convention_);
+        finalNotionalExchangeDate_   = calendar_.adjust(maturityDate_, convention_);
 
         Date lastPaymentDate =
             std::max(firstLeg.back()->date(),
@@ -351,8 +352,8 @@ namespace QuantLib {
                                            useIndexedCoupons),
       isFxBaseCurrencyLegResettable_(isFxBaseCurrencyLegResettable),
       fxResetConvention_(fxResetFixingDays,
-                         fxResetFixingCalendar.empty() ? calendar_ :
-                                                        std::move(fxResetFixingCalendar)) {
+                         fxResetFixingDays != 0 && fxResetFixingCalendar.empty() ?
+                             calendar_ : std::move(fxResetFixingCalendar)) {
         buildSwap();
     }
 

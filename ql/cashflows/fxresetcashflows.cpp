@@ -1,6 +1,8 @@
 /* -*- mode: c++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 
 /*
+ Copyright (C) 2026 Kyrylo Protsenko
+
  This file is part of QuantLib, a free-software/open-source library
  for financial quantitative analysts and developers - http://quantlib.org/
 
@@ -45,6 +47,14 @@ FxReset FxResetConvention::reset(const Date& valueDate) const {
     Date fixingDate = fixingDays_ == 0 ? valueDate :
         fixingCalendar_.advance(valueDate, -static_cast<Integer>(fixingDays_), Days);
     return FxReset(fixingDate, valueDate);
+}
+
+Date FxResetConvention::valueDate(const Date& fixingDate) const {
+    QL_REQUIRE(fixingDate != Date(), "null FX fixing date");
+    QL_REQUIRE(fixingDays_ == 0 || !fixingCalendar_.empty(),
+               "an FX reset fixing calendar is required when fixing days are non-zero");
+    return fixingDays_ == 0 ? fixingDate :
+        fixingCalendar_.advance(fixingDate, static_cast<Integer>(fixingDays_), Days);
 }
 
 DiscountingFxResetPricer::DiscountingFxResetPricer(
