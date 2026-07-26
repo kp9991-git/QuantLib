@@ -32,7 +32,10 @@ MtMCrossCurrencyBasisSwap::MtMCrossCurrencyBasisSwap(
     Real fxQuoteNominal, Currency fxQuoteCurrency, Schedule fxQuoteSchedule,
     const ext::shared_ptr<IborIndex>& fxQuoteIndex, Spread fxQuoteSpread, Real fxQuoteGearing,
     bool isFxBaseCurrencyLegResettable,
+    FxResetConvention fxResetConvention,
     Integer fxBasePaymentLag, Integer fxQuotePaymentLag,
+    BusinessDayConvention fxBasePaymentConvention,
+    BusinessDayConvention fxQuotePaymentConvention,
     bool fxBaseCompoundSpread, Natural fxBaseLookbackDays, bool fxBaseObservationShift,
     Natural fxBaseLockoutDays, RateAveraging::Type fxBaseAveragingMethod,
     bool fxQuoteCompoundSpread, Natural fxQuoteLookbackDays, bool fxQuoteObservationShift,
@@ -47,7 +50,15 @@ MtMCrossCurrencyBasisSwap::MtMCrossCurrencyBasisSwap(
   fxQuoteSchedule_(std::move(fxQuoteSchedule)), fxQuoteIndex_(fxQuoteIndex),
   fxQuoteSpread_(fxQuoteSpread), fxQuoteGearing_(fxQuoteGearing),
   isFxBaseCurrencyLegResettable_(isFxBaseCurrencyLegResettable),
+  fxResetConvention_(
+      fxResetConvention.fixingDays(),
+      fxResetConvention.fixingCalendar().empty() ?
+          (isFxBaseCurrencyLegResettable_ ? fxBaseSchedule_.calendar() :
+                                           fxQuoteSchedule_.calendar()) :
+          fxResetConvention.fixingCalendar()),
   fxBasePaymentLag_(fxBasePaymentLag), fxQuotePaymentLag_(fxQuotePaymentLag),
+  fxBasePaymentConvention_(fxBasePaymentConvention),
+  fxQuotePaymentConvention_(fxQuotePaymentConvention),
   fxBaseCompoundSpread_(fxBaseCompoundSpread), fxBaseLookbackDays_(fxBaseLookbackDays),
   fxBaseObservationShift_(fxBaseObservationShift), fxBaseLockoutDays_(fxBaseLockoutDays),
   fxBaseAveragingMethod_(fxBaseAveragingMethod),
@@ -66,6 +77,8 @@ void MtMCrossCurrencyBasisSwap::initialize() {
                        .withNotionals(fxBaseNominal_)
                        .withSpreads(fxBaseSpread_)
                        .withGearings(fxBaseGearing_)
+                       .withPaymentAdjustment(fxBasePaymentConvention_)
+                       .withPaymentCalendar(fxBaseSchedule_.calendar())
                        .withPaymentLag(fxBasePaymentLag_)
                        .compoundingSpreadDaily(fxBaseCompoundSpread_)
                        .withLookbackDays(fxBaseLookbackDays_)
@@ -78,6 +91,8 @@ void MtMCrossCurrencyBasisSwap::initialize() {
                        .withNotionals(fxBaseNominal_)
                        .withSpreads(fxBaseSpread_)
                        .withGearings(fxBaseGearing_)
+                       .withPaymentAdjustment(fxBasePaymentConvention_)
+                       .withPaymentCalendar(fxBaseSchedule_.calendar())
                        .withPaymentLag(fxBasePaymentLag_);
     }
     payer_[0] = paysFxBaseCurrency() ? -1.0 : +1.0;
@@ -89,6 +104,8 @@ void MtMCrossCurrencyBasisSwap::initialize() {
                        .withNotionals(fxQuoteNominal_)
                        .withSpreads(fxQuoteSpread_)
                        .withGearings(fxQuoteGearing_)
+                       .withPaymentAdjustment(fxQuotePaymentConvention_)
+                       .withPaymentCalendar(fxQuoteSchedule_.calendar())
                        .withPaymentLag(fxQuotePaymentLag_)
                        .compoundingSpreadDaily(fxQuoteCompoundSpread_)
                        .withLookbackDays(fxQuoteLookbackDays_)
@@ -101,6 +118,8 @@ void MtMCrossCurrencyBasisSwap::initialize() {
                        .withNotionals(fxQuoteNominal_)
                        .withSpreads(fxQuoteSpread_)
                        .withGearings(fxQuoteGearing_)
+                       .withPaymentAdjustment(fxQuotePaymentConvention_)
+                       .withPaymentCalendar(fxQuoteSchedule_.calendar())
                        .withPaymentLag(fxQuotePaymentLag_);
     }
     payer_[1] = -payer_[0];
@@ -126,12 +145,12 @@ void MtMCrossCurrencyBasisSwap::initialize() {
 
     Leg resettingLeg;
     resettingLeg.reserve(2 * legs_[resettingLegNo].size() + 1);
-    Date previousResetDate;    // null: the first exchange has no maturing period
+    std::optional<FxReset> previousReset;  // empty: first exchange has no maturing period
     Date previousPaymentDate;  // null: ditto
     for (const auto& cf : legs_[resettingLegNo]) {
         auto coupon = ext::dynamic_pointer_cast<FloatingRateCoupon>(cf);
         QL_REQUIRE(coupon, "unexpected non-coupon cash flow on the resettable leg");
-        Date resetDate = coupon->accrualStartDate();
+        FxReset reset = fxResetConvention_.reset(coupon->accrualStartDate());
         // Interim exchanges settle with the coupons.  The initial exchange is
         // made on the effective date instead of being delayed with the coupons.
         Date exchangeDate =
@@ -139,14 +158,15 @@ void MtMCrossCurrencyBasisSwap::initialize() {
                 previousPaymentDate :
                 paymentCalendar.adjust(earliestDate, Following);
         resettingLeg.push_back(ext::make_shared<FxResetNotionalExchange>(
-            exchangeDate, constantLegNotional(), previousResetDate, resetDate));
-        resettingLeg.push_back(ext::make_shared<FxResetCoupon>(coupon, constantLegNotional()));
-        previousResetDate = resetDate;
+            exchangeDate, constantLegNotional(), previousReset, reset));
+        resettingLeg.push_back(
+            ext::make_shared<FxResetCoupon>(coupon, constantLegNotional(), reset));
+        previousReset = reset;
         previousPaymentDate = coupon->date();
     }
     resettingLeg.push_back(ext::make_shared<FxResetNotionalExchange>(
         paymentCalendar.adjust(maturityDate, Following),
-        constantLegNotional(), previousResetDate, Date()));
+        constantLegNotional(), previousReset, std::nullopt));
     std::stable_sort(resettingLeg.begin(), resettingLeg.end(),
                      [](const ext::shared_ptr<CashFlow>& lhs,
                         const ext::shared_ptr<CashFlow>& rhs) {
@@ -198,12 +218,18 @@ void MtMCrossCurrencyBasisSwap::fetchResults(const PricingEngine::results* r) co
 
     static Spread basisPoint = 1.0e-4;
     if (fairFxBaseSpread_ == Null<Spread>()) {
-        if (legBPS_[0] != Null<Real>())
+        if (legBPS_[0] != Null<Real>()) {
+            QL_REQUIRE(legBPS_[0] != 0.0,
+                       "cannot calculate fair FX-base spread: null leg BPS");
             fairFxBaseSpread_ = fxBaseSpread_ - NPV_ / (legBPS_[0] / basisPoint);
+        }
     }
     if (fairFxQuoteSpread_ == Null<Spread>()) {
-        if (legBPS_[1] != Null<Real>())
+        if (legBPS_[1] != Null<Real>()) {
+            QL_REQUIRE(legBPS_[1] != 0.0,
+                       "cannot calculate fair FX-quote spread: null leg BPS");
             fairFxQuoteSpread_ = fxQuoteSpread_ - NPV_ / (legBPS_[1] / basisPoint);
+        }
     }
 }
 

@@ -136,7 +136,6 @@ namespace QuantLib {
                 payment frequency of the quote-currency leg; if left unset (the
                 default) it defaults to \c paymentFrequency, and if that is unset as
                 well the schedule is derived from the quote-currency index tenor.
-
             In both frequency parameters, \c NoFrequency is accepted as a synonym for
             an unset (null) value.
         */
@@ -199,7 +198,11 @@ namespace QuantLib {
                 payment frequency of the quote-currency leg; if left unset (the
                 default) it defaults to \c paymentFrequency, and if that is unset as
                 well the schedule is derived from the quote-currency index tenor.
-
+            \param fxResetFixingDays
+                number of business days by which each FX fixing precedes its
+                accrual-start value date (default: 0).
+            \param fxResetFixingCalendar
+                calendar used for the FX fixing offset; if empty, \p calendar is used.
             In both frequency parameters, \c NoFrequency is accepted as a synonym for
             an unset (null) value.
         */
@@ -217,7 +220,9 @@ namespace QuantLib {
                                             bool isFxBaseCurrencyLegResettable,
                                             std::optional<Frequency> paymentFrequency = std::nullopt,
                                             Integer paymentLag = 0,
-                                            std::optional<Frequency> quoteCurrencyPaymentFrequency = std::nullopt);
+                                            std::optional<Frequency> quoteCurrencyPaymentFrequency = std::nullopt,
+                                            Natural fxResetFixingDays = 0,
+                                            Calendar fxResetFixingCalendar = Calendar());
         //! \name RateHelper interface
         //@{
         Real impliedQuote() const override;
@@ -226,6 +231,7 @@ namespace QuantLib {
         //@{
         //! the underlying par swap: unit notionals, zero spreads, spot FX = 1
         const ext::shared_ptr<MtMCrossCurrencyBasisSwap>& swap() const { return swap_; }
+        const FxResetConvention& fxResetConvention() const { return fxResetConvention_; }
         //@}
         //! \name Visitability
         //@{
@@ -238,6 +244,7 @@ namespace QuantLib {
         void buildSwap();
 
         bool isFxBaseCurrencyLegResettable_;
+        FxResetConvention fxResetConvention_;
         ext::shared_ptr<MtMCrossCurrencyBasisSwap> swap_;
     };
 
