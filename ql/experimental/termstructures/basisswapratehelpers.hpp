@@ -124,6 +124,9 @@ namespace QuantLib {
         this is only allowed when bootstrapBaseCurve is true, i.e. when
         the ibor index has an exogenous forecast curve; otherwise the
         candidates could not track the curve under construction.
+
+        The basis is quoted on the overnight (base) leg by default.  Setting
+        basisOnIborLeg solves for a margin quoted on the ibor leg instead.
     */
     class OvernightIborBasisSwapRateHelper : public RelativeDateRateHelper {
       public:
@@ -143,7 +146,8 @@ namespace QuantLib {
                                          DateGeneration::Rule rule = DateGeneration::Backward,
                                          RateAveraging::Type averagingMethod = RateAveraging::Compound,
                                          bool telescopicValueDates = false,
-                                         StubIndexConfig iborStubIndexConfig = {});
+                                         StubIndexConfig iborStubIndexConfig = {},
+                                         bool basisOnIborLeg = false);
 
         Real impliedQuote() const override;
         void accept(AcyclicVisitor&) override;
@@ -169,6 +173,7 @@ namespace QuantLib {
         RateAveraging::Type averagingMethod_;
         bool telescopicValueDates_;
         StubIndexConfig iborStubIndexConfig_;
+        bool basisOnIborLeg_;
 
         ext::shared_ptr<Swap> swap_;
 

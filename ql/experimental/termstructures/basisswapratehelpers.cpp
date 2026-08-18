@@ -170,14 +170,16 @@ namespace QuantLib {
         DateGeneration::Rule rule,
         RateAveraging::Type averagingMethod,
         bool telescopicValueDates,
-        StubIndexConfig iborStubIndexConfig)
+        StubIndexConfig iborStubIndexConfig,
+        bool basisOnIborLeg)
     : RelativeDateRateHelper(basis), tenor_(tenor), settlementDays_(settlementDays),
       calendar_(std::move(calendar)), convention_(convention), endOfMonth_(endOfMonth),
       discountHandle_(std::move(discountHandle)), bootstrapBaseCurve_(bootstrapBaseCurve),
       paymentLag_(paymentLag), overnightPaymentFrequency_(overnightPaymentFrequency),
       useIndexedCoupons_(useIndexedCoupons), rule_(rule), averagingMethod_(averagingMethod),
       telescopicValueDates_(telescopicValueDates),
-      iborStubIndexConfig_(std::move(iborStubIndexConfig)) {
+      iborStubIndexConfig_(std::move(iborStubIndexConfig)),
+      basisOnIborLeg_(basisOnIborLeg) {
 
         QL_REQUIRE(baseIndex, "null base overnight index");
         QL_REQUIRE(otherIndex, "null other ibor index");
@@ -288,7 +290,8 @@ namespace QuantLib {
 
     Real OvernightIborBasisSwapRateHelper::impliedQuote() const {
         swap_->deepUpdate();
-        return - (swap_->NPV() / swap_->legBPS(0)) * 1.0e-4;
+        Size leg = basisOnIborLeg_ ? 1 : 0;
+        return - (swap_->NPV() / swap_->legBPS(leg)) * 1.0e-4;
     }
 
     void OvernightIborBasisSwapRateHelper::accept(AcyclicVisitor& v) {
