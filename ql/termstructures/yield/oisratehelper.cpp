@@ -21,6 +21,7 @@
 #include <ql/instruments/makeois.hpp>
 #include <ql/instruments/simplifynotificationgraph.hpp>
 #include <ql/cashflows/couponpricer.hpp>
+#include <ql/cashflows/fixedratecoupon.hpp>
 #include <ql/cashflows/overnightindexedcoupon.hpp>
 #include <ql/pricingengines/swap/discountingswapengine.hpp>
 #include <ql/termstructures/yield/oisratehelper.hpp>
@@ -228,6 +229,145 @@ namespace QuantLib {
         Real spreadNPV = swap_->overnightLegBPS()/basisPoint*spread;
         Real totNPV = - (floatingLegNPV+spreadNPV);
         Real result = totNPV/(swap_->fixedLegBPS()/basisPoint);
+        return result;
+    }
+
+    std::vector<std::pair<Time, Real>> OISRateHelper::impliedQuoteSensitivities() const {
+        if (termStructure_ == nullptr || discountRelinkableHandle_.empty())
+            return {};
+        // fall back to numerical differentiation for the features that
+        // the analytical formulas below don't cover
+        if (averagingMethod_ != RateAveraging::Compound || lockoutDays_ != 0 ||
+            applyObservationShift_ || lookbackDays_ != Null<Natural>() ||
+            pricer_ != nullptr)
+            return {};
+
+        // Same structure as SwapRateHelper::impliedQuoteSensitivities();
+        // the difference is in the sensitivity of the overnight coupon
+        // rates, whose compound factor is (mirroring the corresponding
+        // computation in CompoundingOvernightIndexedCouponPricer)
+        //
+        //   C = C_past * [boundary growth factors] * P(v_s)/P(v_e)
+        //
+        // with at most one non-telescoping growth factor at each end of
+        // the value-date schedule.
+        const bool sameCurve = discountHandle_.empty();
+        const YieldTermStructure& discountCurve = **discountRelinkableHandle_;
+        Date settlement = discountCurve.referenceDate();
+        Date today = Settings::instance().evaluationDate();
+        Spread s = overnightSpread_.empty() ? 0.0 : overnightSpread_->value();
+
+        Real annuity = 0.0;
+        std::vector<std::pair<Date, Real>> fixedData; // (payment date, N*tau)
+        for (const auto& cf : swap_->fixedLeg()) {
+            if (cf->hasOccurred(settlement))
+                continue;
+            auto cpn = ext::dynamic_pointer_cast<FixedRateCoupon>(cf);
+            if (cpn == nullptr)
+                return {};
+            Real ntau = cpn->nominal()*cpn->accrualPeriod();
+            annuity += ntau*discountCurve.discount(cpn->date());
+            fixedData.emplace_back(cpn->date(), ntau);
+        }
+        if (annuity == 0.0)
+            return {};
+
+        struct OvernightData {
+            Date payDate;
+            Real ntau, rate, amountScale;
+            DiscountFactor discount;
+            // log-derivatives of the compound factor w.r.t. the
+            // forecast discount factors at the given dates
+            std::vector<std::pair<Date, Real>> dlogCompound;
+        };
+        std::vector<OvernightData> overnightData;
+        Real floatingNPV = 0.0;
+        const DayCounter& dc = overnightIndex_->dayCounter();
+        for (const auto& cf : swap_->overnightLeg()) {
+            if (cf->hasOccurred(settlement))
+                continue;
+            auto cpn = ext::dynamic_pointer_cast<OvernightIndexedCoupon>(cf);
+            if (cpn == nullptr || cpn->compoundSpreadDaily())
+                return {};
+
+            const auto& fixingDates = cpn->fixingDates();
+            const auto& valueDates = cpn->valueDates();
+            const auto& interestDates = cpn->interestDates();
+            const auto& dt = cpn->dt();
+            Size n = fixingDates.size();
+
+            // first fixing to be forecast
+            Size i0 = 0;
+            while (i0 < n && fixingDates[i0] < today)
+                ++i0;
+            if (i0 < n && fixingDates[i0] == today &&
+                overnightIndex_->hasHistoricalFixing(fixingDates[i0]))
+                ++i0;
+
+            OvernightData d;
+            if (i0 < n) {
+                auto addGrowthFactor = [&](Size i) {
+                    // g = 1 + f*dt[i], f = (P(v1)/P(v2)-1)/tauIndex
+                    Real f = overnightIndex_->fixing(fixingDates[i]);
+                    Real g = 1.0 + f*dt[i];
+                    const Date& v1 = valueDates[i];
+                    const Date& v2 = valueDates[i+1];
+                    Time tauIndex = dc.yearFraction(v1, v2);
+                    DiscountFactor P1 = termStructure_->discount(v1);
+                    DiscountFactor P2 = termStructure_->discount(v2);
+                    d.dlogCompound.emplace_back(v1, dt[i]/(tauIndex*P2*g));
+                    d.dlogCompound.emplace_back(v2, -dt[i]*P1/(tauIndex*P2*P2*g));
+                };
+                // possible front and back non-telescoping factors, when
+                // the accrual start or end falls on a fixing holiday
+                Size start = (i0 == 0 && valueDates.front() < interestDates.front())
+                             ? Size(1) : i0;
+                Size end = n - (valueDates[n] <= interestDates[n] ? 0 : 1);
+                if (start < end) {
+                    for (Size i = i0; i < start; ++i)
+                        addGrowthFactor(i);
+                    DiscountFactor Ps = termStructure_->discount(valueDates[start]);
+                    DiscountFactor Pe = termStructure_->discount(valueDates[end]);
+                    d.dlogCompound.emplace_back(valueDates[start], 1.0/Ps);
+                    d.dlogCompound.emplace_back(valueDates[end], -1.0/Pe);
+                    for (Size i = end; i < n; ++i)
+                        addGrowthFactor(i);
+                } else {
+                    for (Size i = i0; i < n; ++i)
+                        addGrowthFactor(i);
+                }
+            }
+
+            d.payDate = cpn->date();
+            d.ntau = cpn->nominal()*cpn->accrualPeriod();
+            d.rate = cpn->rate();
+            d.discount = discountCurve.discount(d.payDate);
+            // amount = N * accrualPeriod * gearing * (compound-1)/tau
+            Real gearing = cpn->gearing();
+            Time tau = dc.yearFraction(interestDates.front(), interestDates.back());
+            Real compound = (d.rate - cpn->spread())*tau/gearing + 1.0;
+            d.amountScale = d.ntau*gearing*compound/tau;
+
+            floatingNPV += d.ntau*(d.rate + s)*d.discount;
+            overnightData.push_back(std::move(d));
+        }
+        Real fairRate = floatingNPV/annuity;
+
+        std::vector<std::pair<Time, Real>> result;
+        if (sameCurve) {
+            // sensitivities to the discount factors at the payment dates
+            for (const auto& [payDate, ntau] : fixedData)
+                result.emplace_back(termStructure_->timeFromReference(payDate),
+                                    -fairRate*ntau/annuity);
+            for (const auto& d : overnightData)
+                result.emplace_back(termStructure_->timeFromReference(d.payDate),
+                                    d.ntau*(d.rate + s)/annuity);
+        }
+        // sensitivities to the forecast discount factors
+        for (const auto& d : overnightData)
+            for (const auto& [date, w] : d.dlogCompound)
+                result.emplace_back(termStructure_->timeFromReference(date),
+                                    d.discount*d.amountScale*w/annuity);
         return result;
     }
 

@@ -27,6 +27,8 @@
 #define quantlib_piecewise_yield_curve_hpp
 
 #include <ql/patterns/lazyobject.hpp>
+#include <ql/math/matrix.hpp>
+#include <ql/termstructures/bootstrapjacobian.hpp>
 #include <ql/termstructures/iterativebootstrap.hpp>
 #include <ql/termstructures/globalbootstrap.hpp>
 #include <ql/termstructures/multicurve.hpp>
@@ -141,6 +143,28 @@ namespace QuantLib {
         const std::vector<Real>& data() const;
         std::vector<std::pair<Date, Real> > nodes() const;
         //@}
+        //! \name Jacobian
+        //@{
+        /*! Jacobian of the implied quotes with respect to the curve nodes.
+
+            Element (i,j) is the derivative of the i-th alive helper's
+            implied quote with respect to the curve value data()[j+1]
+            (the value at the reference date, data()[0], is not a free
+            variable).  Rows follow the order of the helpers as stored
+            in the curve (i.e., sorted by pillar date when the iterative
+            bootstrap is used). Columns follow the curve nodes, so the
+            matrix is square.
+        */
+        Matrix jacobian(std::vector<bool>* analyticRows = nullptr) const;
+
+        /*! Jacobian of the curve nodes with respect to the quotes.
+
+            Element (j,i) is the derivative of the curve value
+            data()[j+1] with respect to the i-th alive helper's quote,
+            obtained by inverting jacobian().
+        */
+        Matrix inverseJacobian(std::vector<bool>* analyticRows = nullptr) const;
+        //@}
         //! \name Observer interface
         //@{
         void update() override;
@@ -214,6 +238,21 @@ namespace QuantLib {
     PiecewiseYieldCurve<C,I,B>::nodes() const {
         calculate();
         return base_curve::nodes();
+    }
+
+    template <class Traits, class Interpolator, template <class> class Bootstrap>
+    Matrix PiecewiseYieldCurve<Traits, Interpolator, Bootstrap>::jacobian(
+                                       std::vector<bool>* analyticRows) const {
+        calculate();
+        return detail::bootstrapJacobian<Traits>(
+            this, instruments_, this->times_, this->data_,
+            this->interpolation_, !this->jumpDates().empty(), analyticRows);
+    }
+
+    template <class Traits, class Interpolator, template <class> class Bootstrap>
+    Matrix PiecewiseYieldCurve<Traits, Interpolator, Bootstrap>::inverseJacobian(
+                                       std::vector<bool>* analyticRows) const {
+        return detail::inverseBootstrapJacobian(jacobian(analyticRows));
     }
 
     template <class C, class I, template <class> class B>

@@ -34,6 +34,7 @@
 #include <ql/settings.hpp>
 #include <ql/time/date.hpp>
 #include <utility>
+#include <vector>
 
 namespace QuantLib {
 
@@ -68,6 +69,20 @@ namespace QuantLib {
         const Handle<Quote>& quote() const { return quote_; }
         virtual Real impliedQuote() const = 0;
         Real quoteError() const { return quote_->value() - impliedQuote(); }
+        //! analytical sensitivities of the implied quote to the term structure
+        /*! Returns pairs \f$ (t, \partial Q / \partial v(t)) \f$ where
+            \f$ Q \f$ is the implied quote and \f$ v(t) \f$ is the value
+            queried from the term structure being bootstrapped at time t
+            (measured with the term structure's day counter). For yield
+            term structures \f$ v(t) \f$ is the discount factor at t.
+            An empty vector (the default) means that analytical
+            sensitivities are not available for this helper.
+            Users of this interface such as PiecewiseYieldCurve::jacobian() will
+            fall back to numerical differentiation in that case.
+        */
+        virtual std::vector<std::pair<Time, Real>> impliedQuoteSensitivities() const {
+            return {};
+        }
         //! sets the term structure to be used for pricing
         /*! \warning Being a pointer and not a shared_ptr, the term
                      structure is not guaranteed to remain allocated

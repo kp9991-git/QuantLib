@@ -799,6 +799,34 @@ namespace QuantLib {
                 Real dx_ = x-this->xBegin_[j];
                 return 2.0*this->b_[j] + 6.0*this->c_[j]*dx_;
             }
+            std::vector<std::pair<Size, Real>> nodeWeights(Real x) const override {
+                // The machinery below relies on the interpolated values
+                // being affine in the node values, which only holds for
+                // these derivative approximations and without the
+                // monotonicity filter.
+                if (monotonic_ ||
+                    (da_ != CubicInterpolation::Spline &&
+                     da_ != CubicInterpolation::Parabolic))
+                    return {};
+
+                // Being affine, the weight of the j-th node is the value
+                // at x of the interpolation of the j-th unit vector; the
+                // boundary condition values are zeroed out because they
+                // enter the constant part of the affine map.
+                std::vector<std::pair<Size, Real>> weights;
+                weights.reserve(n_);
+                std::vector<Real> unit(n_, 0.0);
+                for (Size j=0; j<n_; ++j) {
+                    unit[j] = 1.0;
+                    CubicInterpolation basis(this->xBegin_, this->xEnd_,
+                                             unit.begin(), da_, false,
+                                             leftType_, 0.0,
+                                             rightType_, 0.0);
+                    weights.emplace_back(j, basis(x, true));
+                    unit[j] = 0.0;
+                }
+                return weights;
+            }
 
           private:
             Size n_;

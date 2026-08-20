@@ -74,6 +74,7 @@ namespace QuantLib {
         //! \name RateHelper interface
         //@{
         Real impliedQuote() const override;
+        std::vector<std::pair<Time, Real>> impliedQuoteSensitivities() const override;
         //@}
         //! \name FuturesRateHelper inspectors
         //@{
@@ -107,6 +108,7 @@ namespace QuantLib {
         //! \name RateHelper interface
         //@{
         Real impliedQuote() const override;
+        std::vector<std::pair<Time, Real>> impliedQuoteSensitivities() const override;
         void setTermStructure(YieldTermStructure*) override;
         //@}
         //! \name Visitability
@@ -175,6 +177,7 @@ namespace QuantLib {
         //! \name RateHelper interface
         //@{
         Real impliedQuote() const override;
+        std::vector<std::pair<Time, Real>> impliedQuoteSensitivities() const override;
         void setTermStructure(YieldTermStructure*) override;
         //@}
         //! \name Visitability
@@ -251,6 +254,7 @@ namespace QuantLib {
         //! \name RateHelper interface
         //@{
         Real impliedQuote() const override;
+        std::vector<std::pair<Time, Real>> impliedQuoteSensitivities() const override;
         void setTermStructure(YieldTermStructure*) override;
         //@}
         //! \name SwapRateHelper inspectors
@@ -384,6 +388,7 @@ namespace QuantLib {
         //! \name RateHelper interface
         //@{
         Real impliedQuote() const override;
+        std::vector<std::pair<Time, Real>> impliedQuoteSensitivities() const override;
         void setTermStructure(YieldTermStructure*) override;
         //@}
         //! \name FxSwapRateHelper inspectors

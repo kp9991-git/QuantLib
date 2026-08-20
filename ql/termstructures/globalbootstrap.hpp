@@ -28,6 +28,7 @@
 #include <ql/math/interpolations/linearinterpolation.hpp>
 #include <ql/math/optimization/levenbergmarquardt.hpp>
 #include <ql/termstructures/bootstraphelper.hpp>
+#include <ql/termstructures/bootstrapjacobian.hpp>
 #include <ql/utilities/dataformatters.hpp>
 #include <algorithm>
 #include <functional>
@@ -99,6 +100,9 @@ class AdditionalBootstrapVariables {
   helpers, for example, convexity adjustments for futures. See SimpleQuoteVariables
   for a concrete implementation of this interface.
 
+  The analyticJacobian parameter controls whether the optimization uses the
+  analytical Jacobian of the cost function.
+
   WARNING: This class is known to work with Traits Discount, ZeroYield, Forward,
   i.e. the usual IR curves traits in QL. For new Traits you may want to implement
   Traits::transformDirect()/transformInverse()/globalGuess().
@@ -116,7 +120,8 @@ template <class Curve> class GlobalBootstrap final : public MultiCurveBootstrapC
                     ext::shared_ptr<OptimizationMethod> optimizer = nullptr,
                     ext::shared_ptr<EndCriteria> endCriteria = nullptr,
                     std::vector<Real> instrumentWeights = {},
-                    InitialGuessFn initialGuessFn = nullptr);
+                    InitialGuessFn initialGuessFn = nullptr,
+                    bool analyticJacobian = false);
     GlobalBootstrap(std::vector<ext::shared_ptr<typename Traits::helper>> additionalHelpers,
                     std::function<std::vector<Date>()> additionalDates,
                     AdditionalPenalties additionalPenalties,
@@ -125,7 +130,8 @@ template <class Curve> class GlobalBootstrap final : public MultiCurveBootstrapC
                     ext::shared_ptr<EndCriteria> endCriteria = nullptr,
                     ext::shared_ptr<AdditionalBootstrapVariables> additionalVariables = nullptr,
                     std::vector<Real> instrumentWeights = {},
-                    InitialGuessFn initialGuessFn = nullptr);
+                    InitialGuessFn initialGuessFn = nullptr,
+                    bool analyticJacobian = false);
     GlobalBootstrap(std::vector<ext::shared_ptr<typename Traits::helper>> additionalHelpers,
                     std::function<std::vector<Date>()> additionalDates,
                     std::function<Array()> additionalPenalties,
@@ -134,7 +140,8 @@ template <class Curve> class GlobalBootstrap final : public MultiCurveBootstrapC
                     ext::shared_ptr<EndCriteria> endCriteria = nullptr,
                     ext::shared_ptr<AdditionalBootstrapVariables> additionalVariables = nullptr,
                     std::vector<Real> instrumentWeights = {},
-                    InitialGuessFn initialGuessFn = nullptr);
+                    InitialGuessFn initialGuessFn = nullptr,
+                    bool analyticJacobian = false);
     void setup(Curve *ts);
     void calculate() const;
 
@@ -153,6 +160,24 @@ template <class Curve> class GlobalBootstrap final : public MultiCurveBootstrapC
     void setCostFunctionArgument(const Array& v) const override;
     Array evaluateCostFunction() const override;
     void setToValid() const override;
+    bool analyticCostJacobian(Matrix& jac, const Array& x) const;
+
+    // cost function using the analytical Jacobian when available
+    class BootstrapCostFunction : public CostFunction {
+      public:
+        explicit BootstrapCostFunction(const GlobalBootstrap<Curve>* b) : b_(b) {}
+        Array values(const Array& x) const override {
+            b_->setCostFunctionArgument(x);
+            return b_->evaluateCostFunction();
+        }
+        void jacobian(Matrix& jac, const Array& x) const override {
+            if (!(b_->analyticJacobian_ && b_->analyticCostJacobian(jac, x)))
+                CostFunction::jacobian(jac, x);
+        }
+      private:
+        const GlobalBootstrap<Curve>* b_;
+    };
+
     Curve* ts_;
     Real accuracy_;
     ext::shared_ptr<OptimizationMethod> optimizer_;
@@ -166,6 +191,8 @@ template <class Curve> class GlobalBootstrap final : public MultiCurveBootstrapC
     mutable std::vector<Real> instrumentWeights_;
     mutable std::vector<Real> aliveInstrumentWeights_;
     InitialGuessFn initialGuessFn_;
+    bool analyticJacobian_ = false;
+    bool defaultOptimizer_ = false;
     mutable bool initialized_ = false, validCurve_ = false;
     mutable ext::shared_ptr<MultiCurveBootstrap> parentBootstrapper_ = nullptr;
 };
@@ -189,10 +216,11 @@ GlobalBootstrap<Curve>::GlobalBootstrap(Real accuracy,
                                         ext::shared_ptr<OptimizationMethod> optimizer,
                                         ext::shared_ptr<EndCriteria> endCriteria,
                                         std::vector<Real> instrumentWeights,
-                                        InitialGuessFn initialGuessFn)
+                                        InitialGuessFn initialGuessFn,
+                                        bool analyticJacobian)
 : ts_(nullptr), accuracy_(accuracy), optimizer_(std::move(optimizer)),
   endCriteria_(std::move(endCriteria)), instrumentWeights_(std::move(instrumentWeights)),
-  initialGuessFn_(std::move(initialGuessFn)) {}
+  initialGuessFn_(std::move(initialGuessFn)), analyticJacobian_(analyticJacobian) {}
 
 template <class Curve>
 GlobalBootstrap<Curve>::GlobalBootstrap(
@@ -204,14 +232,15 @@ GlobalBootstrap<Curve>::GlobalBootstrap(
     ext::shared_ptr<EndCriteria> endCriteria,
     ext::shared_ptr<AdditionalBootstrapVariables> additionalVariables,
     std::vector<Real> instrumentWeights,
-    InitialGuessFn initialGuessFn)
+    InitialGuessFn initialGuessFn,
+    bool analyticJacobian)
 : ts_(nullptr), accuracy_(accuracy), optimizer_(std::move(optimizer)),
   endCriteria_(std::move(endCriteria)), additionalHelpers_(std::move(additionalHelpers)),
   additionalDates_(std::move(additionalDates)),
   additionalPenalties_(std::move(additionalPenalties)),
   additionalVariables_(std::move(additionalVariables)),
   instrumentWeights_(std::move(instrumentWeights)),
-  initialGuessFn_(std::move(initialGuessFn)) {}
+  initialGuessFn_(std::move(initialGuessFn)), analyticJacobian_(analyticJacobian) {}
 
 template <class Curve>
 GlobalBootstrap<Curve>::GlobalBootstrap(
@@ -223,7 +252,8 @@ GlobalBootstrap<Curve>::GlobalBootstrap(
     ext::shared_ptr<EndCriteria> endCriteria,
     ext::shared_ptr<AdditionalBootstrapVariables> additionalVariables,
     std::vector<Real> instrumentWeights,
-    InitialGuessFn initialGuessFn)
+    InitialGuessFn initialGuessFn,
+    bool analyticJacobian)
 : GlobalBootstrap(std::move(additionalHelpers),
                   std::move(additionalDates),
                   additionalPenalties ?
@@ -235,7 +265,8 @@ GlobalBootstrap<Curve>::GlobalBootstrap(
                   std::move(endCriteria),
                   std::move(additionalVariables),
                   std::move(instrumentWeights),
-                  std::move(initialGuessFn)) {}
+                  std::move(initialGuessFn),
+                  analyticJacobian) {}
 
 template <class Curve>
 void GlobalBootstrap<Curve>::setParentBootstrapper(const ext::shared_ptr<MultiCurveBootstrap>& b) const {
@@ -255,6 +286,9 @@ template <class Curve> void GlobalBootstrap<Curve>::setup(Curve* ts) {
     Real accuracy = accuracy_ != Null<Real>() ? accuracy_ : ts_->accuracy_;
     if (!optimizer_) {
         optimizer_ = ext::make_shared<LevenbergMarquardt>(accuracy, accuracy, accuracy);
+        // remember this so that we may later switch to an optimizer
+        // using the analytical Jacobian, if available for this curve
+        defaultOptimizer_ = true;
     }
     if (!endCriteria_) {
         endCriteria_ = ext::make_shared<EndCriteria>(1000, 10, accuracy, accuracy, accuracy);
@@ -305,12 +339,14 @@ template <class Curve> void GlobalBootstrap<Curve>::initialize() const {
         );
     }
 
-    // calculate dates and times
-    std::vector<Date> &dates = ts_->dates_;
-    std::vector<Time> &times = ts_->times_;
+    // Calculate dates and times.  They are built into local vectors and
+    // then copied in place when the sizes are unchanged, so that the
+    // iterators stored in an existing interpolation remain valid; when
+    // the sizes change, the vectors are reassigned, but in that case
+    // the interpolation is rebuilt as well (validCurve_ is reset below).
 
     // first populate the dates vector and make sure they are sorted and unique
-    dates.clear();
+    std::vector<Date> dates;
     dates.push_back(firstDate);
     std::transform(
         aliveInstruments_.begin(), aliveInstruments_.end(), std::back_inserter(dates),
@@ -326,23 +362,32 @@ template <class Curve> void GlobalBootstrap<Curve>::initialize() const {
                    << Interpolator::requiredPoints);
 
     // build times vector
-    times.clear();
+    std::vector<Time> times;
+    times.reserve(dates.size());
     std::transform(dates.begin(), dates.end(), std::back_inserter(times),
                    [this](const Date& d) { return ts_->timeFromReference(d); });
 
+    if (ts_->dates_.size() == dates.size()) {
+        std::copy(dates.begin(), dates.end(), ts_->dates_.begin());
+        std::copy(times.begin(), times.end(), ts_->times_.begin());
+    } else {
+        ts_->dates_ = std::move(dates);
+        ts_->times_ = std::move(times);
+    }
+
     // determine maxDate ensuring all instruments and additional helpers are covered
-    ts_->maxDate_ = dates.back();
+    ts_->maxDate_ = ts_->dates_.back();
     for (auto const& h : aliveInstruments_)
         ts_->maxDate_ = std::max(ts_->maxDate_, h->latestRelevantDate());
     for (auto const& h : aliveAdditionalHelpers_)
         ts_->maxDate_ = std::max(ts_->maxDate_, h->latestRelevantDate());
 
     // set initial guess only if the current curve cannot be used as guess
-    if (!validCurve_ || ts_->data_.size() != dates.size()) {
+    if (!validCurve_ || ts_->data_.size() != ts_->dates_.size()) {
         // ts_->data_[0] is the only relevant item,
         // but reasonable numbers might be needed for the whole data vector
         // because, e.g., of interpolation's early checks
-        ts_->data_ = std::vector<Real>(dates.size(), Traits::initialValue(ts_));
+        ts_->data_ = std::vector<Real>(ts_->dates_.size(), Traits::initialValue(ts_));
         validCurve_ = false;
     }
     initialized_ = true;
@@ -467,6 +512,43 @@ Array GlobalBootstrap<Curve>::evaluateCostFunction() const {
 }
 
 template <class Curve>
+bool GlobalBootstrap<Curve>::analyticCostJacobian(Matrix& jac, const Array& x) const {
+    if constexpr (!detail::hasSensitivityScale<Traits, Curve>) {
+        return false;
+    } else {
+        // additional error terms and variables are outside the scope of
+        // the analytical machinery
+        if (additionalPenalties_ || additionalVariables_ || !aliveAdditionalHelpers_.empty())
+            return false;
+
+        setCostFunctionArgument(x);
+
+        std::vector<bool> analytic;
+        Matrix J = detail::bootstrapJacobian<Traits>(
+            ts_, aliveInstruments_, ts_->times_, ts_->data_, ts_->interpolation_,
+            !ts_->jumpDates().empty(), &analytic, false);
+        for (auto flag : analytic)  // NOLINT(readability-use-anyofallof)
+            if (!flag)
+                return false;
+
+        // the cost function values are w_i * (quote_i - impliedQuote_i) as
+        // functions of the transformed variables x_j
+        for (Size j = 0; j < J.columns(); ++j) {
+            Real dTransform = 1.0;
+            if constexpr (hasTransform<Traits>) {
+                // derivative of the variable transformation
+                Real h = 1.0e-7 * std::max(std::abs(x[j]), 1.0);
+                dTransform = (Traits::transformDirect(x[j] + h, j + 1, ts_) -
+                              Traits::transformDirect(x[j] - h, j + 1, ts_)) / (2.0 * h);
+            }
+            for (Size i = 0; i < J.rows(); ++i)
+                jac[i][j] = -aliveInstrumentWeights_[i] * J[i][j] * dTransform;
+        }
+        return true;
+    }
+}
+
+template <class Curve>
 void GlobalBootstrap<Curve>::calculate() const {
 
     if (parentBootstrapper_) {
@@ -480,13 +562,25 @@ void GlobalBootstrap<Curve>::calculate() const {
 
     NoConstraint noConstraint;
 
-    SimpleCostFunction costFunction([this](const Array& x) {
-        this->setCostFunctionArgument(x);
-        return this->evaluateCostFunction();
-    });
+    BootstrapCostFunction costFunction(this);
+
+    ext::shared_ptr<OptimizationMethod> optimizer = optimizer_;
+    if (analyticJacobian_ && !guess.empty()) {
+        Matrix probe(aliveInstruments_.size(), ts_->times_.size() - 1, 0.0);
+        bool available = probe.rows() > 0 && probe.columns() == guess.size() &&
+                         analyticCostJacobian(probe, guess);
+        QL_REQUIRE(available,
+                   "the analytical Jacobian was requested, "
+                   "but it is not available for this curve");
+        if (defaultOptimizer_) {
+            Real accuracy = accuracy_ != Null<Real>() ? accuracy_ : ts_->accuracy_;
+            optimizer = ext::make_shared<LevenbergMarquardt>(
+                accuracy, accuracy, accuracy, /*useCostFunctionsJacobian=*/true);
+        }
+    }
 
     Problem problem(costFunction, noConstraint, guess);
-    EndCriteria::Type endType = optimizer_->minimize(problem, *endCriteria_);
+    EndCriteria::Type endType = optimizer->minimize(problem, *endCriteria_);
     QL_REQUIRE(EndCriteria::succeeded(endType),
                "global bootstrap failed to minimize to required accuracy: " << endType);
     validCurve_ = true;

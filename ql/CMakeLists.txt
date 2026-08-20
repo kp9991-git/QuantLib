@@ -2104,6 +2104,7 @@ set(QL_HEADERS
     termstructure.hpp
     termstructures/bootstraperror.hpp
     termstructures/bootstraphelper.hpp
+    termstructures/bootstrapjacobian.hpp
     termstructures/credit/defaultdensitystructure.hpp
     termstructures/credit/defaultprobabilityhelpers.hpp
     termstructures/credit/flathazardrate.hpp

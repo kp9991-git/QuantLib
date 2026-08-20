@@ -31,6 +31,7 @@
 #include <ql/errors.hpp>
 #include <algorithm>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace QuantLib {
@@ -69,6 +70,15 @@ namespace QuantLib {
             virtual Real primitive(Real) const = 0;
             virtual Real derivative(Real) const = 0;
             virtual Real secondDerivative(Real) const = 0;
+            //! sensitivities of the value at x to the node values
+            /*! Returns pairs \f$ (j, \partial f(x) / \partial y_j) \f$
+                for the nodes the value at x depends upon.  An empty
+                vector (the default) means that node sensitivities are
+                not implemented for this interpolation.
+            */
+            virtual std::vector<std::pair<Size, Real>> nodeWeights(Real) const {
+                return {};
+            }
         };
         //! basic template implementation
         template <class I1, class I2, class Base=Impl>
@@ -134,6 +144,20 @@ namespace QuantLib {
         Real secondDerivative(Real x, bool allowExtrapolation = false) const {
             checkRange(x,allowExtrapolation);
             return impl_->secondDerivative(x);
+        }
+        //! sensitivities of the value at x to the node values
+        /*! Returns pairs \f$ (j, \partial f(x) / \partial y_j) \f$ for
+            the nodes the value at x depends upon; an empty vector means
+            that node sensitivities are not implemented for this
+            interpolation.  Outside the given range, the returned
+            weights refer to the interpolant's own extension, which
+            might differ from the extrapolation performed by classes
+            using the interpolation.
+        */
+        std::vector<std::pair<Size, Real>>
+        nodeWeights(Real x, bool allowExtrapolation = false) const {
+            checkRange(x,allowExtrapolation);
+            return impl_->nodeWeights(x);
         }
         Real xMin() const {
             return impl_->xMin();

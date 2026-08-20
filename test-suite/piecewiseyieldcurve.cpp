@@ -2459,6 +2459,178 @@ BOOST_AUTO_TEST_CASE(testHelperDatesFromNonBusinessEvaluationDate) {
                     "    obtained: " << bmaHelper->earliestDate());
 }
 
+template <class Curve>
+void checkJacobian(const ext::shared_ptr<Curve>& curve,
+                   const std::vector<ext::shared_ptr<SimpleQuote>>& quotes,
+                   bool expectAnalytic,
+                   Real tolerance = 1.0e-5) {
+
+    std::vector<bool> analytic;
+    Matrix J = curve->jacobian(&analytic);
+
+    BOOST_REQUIRE(J.rows() == quotes.size());
+    BOOST_REQUIRE(J.columns() == curve->times().size() - 1);
+
+    for (Size i = 0; i < J.rows(); ++i) {
+        if (analytic[i] != expectAnalytic)
+            BOOST_ERROR("row " << i << " was expected to be "
+                        << (expectAnalytic ? "analytical" : "numerical")
+                        << " but was not");
+    }
+
+    // Since the bootstrap enforces impliedQuote == quote, the Jacobian
+    // times the sensitivities of the nodes to the quotes (computed here
+    // by bump and re-bootstrap) must give the identity matrix.
+    Size rows = J.rows(), cols = J.columns();
+    Matrix M(cols, rows);
+    for (Size k = 0; k < rows; ++k) {
+        Real q0 = quotes[k]->value();
+        // the bump must be large enough that the bootstrap accuracy
+        // doesn't pollute the finite differences
+        Real h = 1.0e-6;
+        quotes[k]->setValue(q0 + h);
+        std::vector<Real> up = curve->data();
+        quotes[k]->setValue(q0 - h);
+        std::vector<Real> dn = curve->data();
+        quotes[k]->setValue(q0);
+        for (Size j = 0; j < cols; ++j)
+            M[j][k] = (up[j + 1] - dn[j + 1]) / (2.0 * h);
+    }
+
+    Matrix P = J * M;
+    for (Size i = 0; i < rows; ++i) {
+        for (Size k = 0; k < rows; ++k) {
+            Real expected = (i == k) ? 1.0 : 0.0;
+            if (std::fabs(P[i][k] - expected) > tolerance)
+                BOOST_ERROR("product of Jacobian and node/quote sensitivities "
+                            "is not the identity at ("
+                            << i << "," << k << "): " << P[i][k]
+                            << " (expected " << expected << ")");
+        }
+    }
+
+    // the inverse Jacobian must reproduce the node/quote sensitivities
+    Matrix invJ = curve->inverseJacobian();
+    for (Size j = 0; j < cols; ++j) {
+        for (Size k = 0; k < rows; ++k) {
+            if (std::fabs(invJ[j][k] - M[j][k]) > 10*tolerance)
+                BOOST_ERROR("inverse Jacobian does not match node/quote "
+                            "sensitivities at (" << j << "," << k << "): "
+                            << invJ[j][k] << " vs " << M[j][k]);
+        }
+    }
+}
+
+template <class T, class I>
+void checkJacobian(CommonVars& vars, const I& interpolator, bool expectAnalytic) {
+    auto curve = ext::make_shared<PiecewiseYieldCurve<T, I>>(
+        vars.settlement, vars.instruments, Actual360(), interpolator);
+    checkJacobian(curve, vars.rates, expectAnalytic);
+}
+
+BOOST_AUTO_TEST_CASE(testJacobian) {
+
+    BOOST_TEST_MESSAGE("Testing Jacobian of implied quotes "
+                       "with respect to curve nodes...");
+
+    CommonVars vars;
+
+    // analytical rows available for these combinations...
+    checkJacobian<Discount, LogLinear>(vars, LogLinear(), true);
+    checkJacobian<ZeroYield, Linear>(vars, Linear(), true);
+    checkJacobian<ZeroYield, Cubic>(
+        vars,
+        Cubic(CubicInterpolation::Spline, false,
+              CubicInterpolation::SecondDerivative, 0.0,
+              CubicInterpolation::SecondDerivative, 0.0),
+        true);
+    checkJacobian<Discount, LogCubic>(
+        vars,
+        LogCubic(CubicInterpolation::Spline, false,
+                 CubicInterpolation::SecondDerivative, 0.0,
+                 CubicInterpolation::SecondDerivative, 0.0),
+        true);
+    // ...while these fall back to numerical differentiation (no traits
+    // support, no interpolation support, and the monotonicity filter,
+    // respectively)
+    checkJacobian<ForwardRate, BackwardFlat>(vars, BackwardFlat(), false);
+    checkJacobian<Discount, MonotonicLogCubic>(vars, MonotonicLogCubic(), false);
+}
+
+BOOST_AUTO_TEST_CASE(testJacobianWithOISHelpers) {
+
+    BOOST_TEST_MESSAGE("Testing Jacobian of OIS-bootstrapped curve...");
+
+    CommonVars vars;
+
+    std::vector<ext::shared_ptr<SimpleQuote>> quotes;
+    std::vector<ext::shared_ptr<RateHelper>> helpers;
+    auto estr = ext::make_shared<Estr>();
+    for (auto& [months, r] : std::vector<std::pair<Integer, Rate>>{
+             {1, 0.0190}, {3, 0.0195}, {6, 0.0200}, {12, 0.0210},
+             {24, 0.0225}, {60, 0.0250}}) {
+        auto q = ext::make_shared<SimpleQuote>(r);
+        quotes.push_back(q);
+        helpers.push_back(ext::make_shared<OISRateHelper>(
+            2, months * Months, Handle<Quote>(q), estr));
+    }
+
+    auto curve = ext::make_shared<PiecewiseYieldCurve<Discount, LogLinear>>(
+        0, TARGET(), helpers, Actual360());
+    checkJacobian(curve, quotes, true);
+}
+
+BOOST_AUTO_TEST_CASE(testGlobalBootstrapWithJacobianOptimizer) {
+
+    BOOST_TEST_MESSAGE("Testing global bootstrap using the analytical "
+                       "Jacobian against finite differences...");
+
+    CommonVars vars;
+
+    typedef PiecewiseYieldCurve<Discount, LogLinear, GlobalBootstrap> GBCurve;
+
+    // by default, the bootstrap uses finite differences as before...
+    auto curveDefault = ext::make_shared<GBCurve>(
+        vars.settlement, vars.instruments, Actual360());
+    std::vector<Real> dataDefault = curveDefault->data();
+
+    // ...and must give the same results as an explicitly given optimizer
+    auto plainOptimizer = ext::make_shared<LevenbergMarquardt>(1e-12, 1e-12, 1e-12);
+    auto curvePlain = ext::make_shared<GBCurve>(
+        vars.settlement, vars.instruments, Actual360(), LogLinear(),
+        GlobalBootstrap<GBCurve>(Null<Real>(), plainOptimizer));
+    std::vector<Real> dataPlain = curvePlain->data();
+
+    // opting into the analytical Jacobian must converge to the same nodes
+    auto curveJacobian = ext::make_shared<GBCurve>(
+        vars.settlement, vars.instruments, Actual360(), LogLinear(),
+        GlobalBootstrap<GBCurve>(Null<Real>(), nullptr, nullptr, {}, nullptr,
+                                 /*analyticJacobian=*/true));
+    std::vector<Real> dataJacobian = curveJacobian->data();
+
+    for (Size j = 0; j < dataDefault.size(); ++j) {
+        if (std::fabs(dataDefault[j] - dataPlain[j]) > 1e-15)
+            BOOST_ERROR("node " << j << " differs between the default and an "
+                        "explicitly given plain optimizer: "
+                        << std::setprecision(12)
+                        << dataDefault[j] << " vs " << dataPlain[j]);
+        if (std::fabs(dataJacobian[j] - dataDefault[j]) > 1e-8)
+            BOOST_ERROR("node " << j << " differs between the analytical "
+                        "Jacobian and finite differences: "
+                        << std::setprecision(12)
+                        << dataJacobian[j] << " vs " << dataDefault[j]);
+    }
+
+    // opting in where the analytical Jacobian is not available throws
+    typedef PiecewiseYieldCurve<ForwardRate, BackwardFlat, GlobalBootstrap> GBFwdCurve;
+    // complete the curve type before creating a bootstrap object for it
+    (void)sizeof(GBFwdCurve);
+    auto curveThrow = ext::make_shared<GBFwdCurve>(
+        vars.settlement, vars.instruments, Actual360(), BackwardFlat(),
+        GlobalBootstrap<GBFwdCurve>(Null<Real>(), nullptr, nullptr, {}, nullptr, true));
+    BOOST_CHECK_THROW(curveThrow->data(), Error);
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 BOOST_AUTO_TEST_SUITE_END()
