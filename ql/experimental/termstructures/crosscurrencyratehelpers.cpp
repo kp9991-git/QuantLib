@@ -24,8 +24,11 @@
 #include <ql/cashflows/cashflows.hpp>
 #include <ql/cashflows/simplecashflow.hpp>
 #include <ql/cashflows/fixedratecoupon.hpp>
+#include <ql/currencies/exchangeratemanager.hpp>
 #include <ql/experimental/fx/discountingmtmcrosscurrencybasisswapengine.hpp>
+#include <ql/experimental/fx/fxresetcashflows.hpp>
 #include <ql/experimental/termstructures/crosscurrencyratehelpers.hpp>
+#include <ql/money.hpp>
 #include <ql/pricingengines/swap/discountingconstnotionalcrosscurrencyswapengine.hpp>
 #include <ql/utilities/null_deleter.hpp>
 #include <utility>
@@ -466,6 +469,199 @@ namespace QuantLib {
         if (isBasisOnFxBaseCurrencyLeg_)
             return swap_->fairFxBaseSpread();
         return swap_->fairFxQuoteSpread();
+    }
+
+    std::vector<std::pair<Time, Real>>
+    MtMCrossCurrencyBasisSwapRateHelper::impliedQuoteSensitivities() const {
+        if (termStructure_ == nullptr || termStructureHandle_.empty() ||
+            collateralHandle_.empty())
+            return {};
+
+        // The bootstrapped curve discounts one leg, and both discount
+        // curves drive the FX forwards used for the conversion factor
+        // and for the resettable-leg notionals; the forecast curves of
+        // both indices are exogenous.  Following the engine, the quote
+        // is Q = -NPV/B with
+        //
+        //   NPV = -fx*N_base + N_quote,   B = payer_k*fxconv_k*A_k
+        //
+        // where N and A are the in-currency leg NPVs and annuities, k
+        // is the leg the basis is quoted on, and fx converts the base
+        // currency into the quote currency at unit spot.
+        const Handle<YieldTermStructure>& baseDisc = baseCcyLegDiscountHandle();
+        const Handle<YieldTermStructure>& quoteDisc = quoteCcyLegDiscountHandle();
+        bool bootstrappedIsBase = !isFxBaseCurrencyCollateralCurrency_;
+        const YieldTermStructure& curve = **termStructureHandle_;
+        Date refDate = curve.referenceDate();
+        Date today = Settings::instance().evaluationDate();
+
+        Size resettingLegNo = isFxBaseCurrencyLegResettable_ ? 0 : 1;
+        const Handle<YieldTermStructure>& resetCurve =
+            resettingLegNo == 0 ? baseDisc : quoteDisc;
+        const Handle<YieldTermStructure>& constCurve =
+            resettingLegNo == 0 ? quoteDisc : baseDisc;
+        const Currency& resetCcy =
+            resettingLegNo == 0 ? baseCcyIdx_->currency() : quoteCcyIdx_->currency();
+        const Currency& constCcy =
+            resettingLegNo == 0 ? quoteCcyIdx_->currency() : baseCcyIdx_->currency();
+        bool bootstrappedIsResettable = (resettingLegNo == 0) == bootstrappedIsBase;
+
+        // FX settlement date, as resolved by the swap and its engine
+        Calendar fxCalendar = (fxResetFixingDays_ != 0 && fxResetFixingCalendar_.empty())
+            ? calendar_ : fxResetFixingCalendar_;
+        Date fxSettle = fxCalendar.empty() ? refDate :
+            FxResetConvention(fxResetFixingDays_, fxCalendar).valueDate(today);
+
+        // conversion of base-currency into quote-currency amounts at
+        // unit spot: fx = P_quote(settle)/P_base(settle)
+        Real fx = quoteDisc->discount(fxSettle)/baseDisc->discount(fxSettle);
+        std::pair<Date, Real> dFx = {
+            fxSettle, bootstrappedIsBase ? -fx/baseDisc->discount(fxSettle)
+                                         : fx/quoteDisc->discount(fxSettle)};
+
+        // mirror of DiscountingFxResetPricer::fxRate at unit spot
+        auto historicalReset = [&](const Date& fixingDate) -> Real {
+            try {
+                ExchangeRate rate = ExchangeRateManager::instance().lookup(
+                    constCcy, resetCcy, fixingDate);
+                return rate.exchange(Money(1.0, constCcy)).value();
+            } catch (Error&) {
+                return Null<Real>();
+            }
+        };
+        struct Reset { Real rate; bool forecast; };
+        auto analyzeReset = [&](const FxReset& reset) -> Reset {
+            if (reset.fixingDate() <= today) {
+                Real r = historicalReset(reset.fixingDate());
+                if (r != Null<Real>())
+                    return {r, false};
+                if (reset.fixingDate() < today ||
+                    Settings::instance().enforcesTodaysHistoricFixings())
+                    return {Null<Real>(), false};  // required fixing is missing
+            }
+            Real rate = (resetCurve->discount(fxSettle)/constCurve->discount(fxSettle))
+                * (constCurve->discount(reset.valueDate())
+                   /resetCurve->discount(reset.valueDate()));
+            return {rate, true};
+        };
+        // d(scale * fxRate)/dP entries w.r.t. the bootstrapped curve
+        auto addResetSensitivities = [&](const FxReset& reset, const Reset& r, Real scale,
+                                         std::vector<std::pair<Date, Real>>& out) {
+            if (!r.forecast)
+                return;
+            if (bootstrappedIsResettable) {
+                out.emplace_back(fxSettle, scale*r.rate/resetCurve->discount(fxSettle));
+                out.emplace_back(reset.valueDate(),
+                                 -scale*r.rate/resetCurve->discount(reset.valueDate()));
+            } else {
+                out.emplace_back(fxSettle, -scale*r.rate/constCurve->discount(fxSettle));
+                out.emplace_back(reset.valueDate(),
+                                 scale*r.rate/constCurve->discount(reset.valueDate()));
+            }
+        };
+
+        struct FlowData {
+            Date payDate;
+            Real amount = 0.0, ntau = 0.0;
+            std::vector<std::pair<Date, Real>> dAmount, dNtau;
+        };
+        Real legNPV[2] = {0.0, 0.0}, legAnnuity[2] = {0.0, 0.0};
+        std::vector<FlowData> flows[2];
+        for (Size legNo = 0; legNo < 2; ++legNo) {
+            const Handle<YieldTermStructure>& legCurve = legNo == 0 ? baseDisc : quoteDisc;
+            for (const auto& cf : swap_->leg(legNo)) {
+                if (cf->hasOccurred(refDate, true))
+                    continue;
+                FlowData d;
+                d.payDate = cf->date();
+                if (auto coupon = ext::dynamic_pointer_cast<FxResetCoupon>(cf)) {
+                    auto r = analyzeReset(coupon->fxReset());
+                    if (r.rate == Null<Real>())
+                        return {};
+                    // the amounts of the underlying coupon, rescaled to
+                    // the FX-reset notional
+                    Real underlyingScale =
+                        coupon->constantLegNotional()/coupon->underlying()->nominal();
+                    Real underlyingAmount = coupon->underlying()->amount();
+                    d.amount = underlyingAmount*underlyingScale*r.rate;
+                    d.ntau = coupon->constantLegNotional()*r.rate*coupon->accrualPeriod();
+                    addResetSensitivities(coupon->fxReset(), r,
+                                          underlyingAmount*underlyingScale, d.dAmount);
+                    addResetSensitivities(coupon->fxReset(), r,
+                                          coupon->constantLegNotional()*coupon->accrualPeriod(),
+                                          d.dNtau);
+                } else if (auto exchange =
+                               ext::dynamic_pointer_cast<FxResetNotionalExchange>(cf)) {
+                    if (exchange->previousReset()) {
+                        auto r = analyzeReset(*exchange->previousReset());
+                        if (r.rate == Null<Real>())
+                            return {};
+                        d.amount += exchange->constantLegNotional()*r.rate;
+                        addResetSensitivities(*exchange->previousReset(), r,
+                                              exchange->constantLegNotional(), d.dAmount);
+                    }
+                    if (exchange->currentReset()) {
+                        auto r = analyzeReset(*exchange->currentReset());
+                        if (r.rate == Null<Real>())
+                            return {};
+                        d.amount -= exchange->constantLegNotional()*r.rate;
+                        addResetSensitivities(*exchange->currentReset(), r,
+                                              -exchange->constantLegNotional(), d.dAmount);
+                    }
+                } else if (auto coupon = ext::dynamic_pointer_cast<Coupon>(cf)) {
+                    d.amount = coupon->amount();
+                    d.ntau = coupon->nominal()*coupon->accrualPeriod();
+                } else {
+                    d.amount = cf->amount();
+                }
+                DiscountFactor P = legCurve->discount(d.payDate);
+                legNPV[legNo] += d.amount*P;
+                legAnnuity[legNo] += d.ntau*P;
+                flows[legNo].push_back(std::move(d));
+            }
+        }
+
+        Size basisLegNo = isBasisOnFxBaseCurrencyLeg_ ? 0 : 1;
+        Real payerBasis = basisLegNo == 0 ? -1.0 : 1.0;
+        Real fxconvBasis = basisLegNo == 0 ? fx : 1.0;
+        Real B = payerBasis*fxconvBasis*legAnnuity[basisLegNo];
+        if (B == 0.0)
+            return {};
+        Real quote = impliedQuote();
+
+        // dQ = -dNPV/B - Q*dB/B
+        std::vector<std::pair<Time, Real>> result;
+        auto emit = [&](const Date& d, Real v) {
+            result.emplace_back(curve.timeFromReference(d), v);
+        };
+
+        for (Size legNo = 0; legNo < 2; ++legNo) {
+            const Handle<YieldTermStructure>& legCurve = legNo == 0 ? baseDisc : quoteDisc;
+            bool legOnBootstrappedCurve = (legNo == 0) == bootstrappedIsBase;
+            Real payer = legNo == 0 ? -1.0 : 1.0;
+            Real fxconv = legNo == 0 ? fx : 1.0;
+            for (const auto& d : flows[legNo]) {
+                DiscountFactor P = legCurve->discount(d.payDate);
+                // -dNPV/B through the amounts
+                for (const auto& [date, w] : d.dAmount)
+                    emit(date, -payer*fxconv*P*w/B);
+                if (legOnBootstrappedCurve)
+                    emit(d.payDate, -payer*fxconv*d.amount/B);
+                // -Q*dB/B through the basis-leg annuity
+                if (legNo == basisLegNo) {
+                    for (const auto& [date, w] : d.dNtau)
+                        emit(date, -quote*payerBasis*fxconvBasis*P*w/B);
+                    if (legOnBootstrappedCurve)
+                        emit(d.payDate, -quote*payerBasis*fxconvBasis*d.ntau/B);
+                }
+            }
+        }
+        // NPV and, for a base-currency basis leg, B also depend on the
+        // conversion factor
+        emit(dFx.first, legNPV[0]*dFx.second/B);
+        if (basisLegNo == 0)
+            emit(dFx.first, quote*legAnnuity[0]*dFx.second/B);
+        return result;
     }
 
     void MtMCrossCurrencyBasisSwapRateHelper::accept(AcyclicVisitor& v) {
