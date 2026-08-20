@@ -90,6 +90,79 @@ namespace QuantLib {
         return future_->NPV();
     }
 
+    std::vector<std::pair<Time, Real>>
+    OvernightIndexFutureRateHelper::impliedQuoteSensitivities() const {
+        if (termStructure_ == nullptr)
+            return {};
+
+        const auto& index = future_->overnightIndex();
+        const Calendar& calendar = index->fixingCalendar();
+        const DayCounter& dc = index->dayCounter();
+        Date valueDate = future_->valueDate();
+        Date maturityDate = future_->maturityDate();
+        Date today = Settings::instance().evaluationDate();
+        Time tauRef = dc.yearFraction(valueDate, maturityDate);
+
+        std::vector<std::pair<Time, Real>> result;
+        switch (future_->averagingMethod()) {
+          case RateAveraging::Compound: {
+            // mirroring OvernightIndexFuture::compoundedRate(), whose
+            // forward part telescopes to P(start)/P(maturity)
+            Date start = valueDate;
+            if (today > valueDate) {
+                start = calendar.adjust(today);
+                if (start < maturityDate && index->hasHistoricalFixing(start))
+                    start = std::min(calendar.advance(start, 1, Days), maturityDate);
+            }
+            Time tMaturity = termStructure_->timeFromReference(maturityDate);
+            if (start >= maturityDate)
+                // the rate is fully determined by past fixings
+                return {{tMaturity, 0.0}};
+
+            // NPV = 100*(1 - adj - rate), rate = (prod-1)/tauRef,
+            // prod = C_past * P(start)/P(maturity)
+            Real rate = 1.0 - impliedQuote()/100.0 - future_->convexityAdjustment();
+            Real prod = rate*tauRef + 1.0;
+            DiscountFactor Ps = termStructure_->discount(start);
+            DiscountFactor Pm = termStructure_->discount(maturityDate);
+            result.emplace_back(termStructure_->timeFromReference(start),
+                                -100.0*prod/(tauRef*Ps));
+            result.emplace_back(tMaturity, 100.0*prod/(tauRef*Pm));
+            break;
+          }
+          case RateAveraging::Simple: {
+            // mirroring OvernightIndexFuture::averagedRate(): each future
+            // fixing contributes a simple forward over its own period
+            Date d1 = valueDate;
+            Date fixingDate = calendar.adjust(d1, Preceding);
+            while (d1 < maturityDate) {
+                Date d2 = calendar.advance(d1, 1, Days);
+                bool forecast = fixingDate > today ||
+                    (fixingDate == today && !index->hasHistoricalFixing(fixingDate));
+                if (forecast) {
+                    Time w = dc.yearFraction(d1, std::min(d2, maturityDate));
+                    Time tauFixing = dc.yearFraction(fixingDate, d2);
+                    DiscountFactor P1 = termStructure_->discount(fixingDate);
+                    DiscountFactor P2 = termStructure_->discount(d2);
+                    Real k = -100.0*w/(tauRef*tauFixing);
+                    result.emplace_back(termStructure_->timeFromReference(fixingDate),
+                                        k/P2);
+                    result.emplace_back(termStructure_->timeFromReference(d2),
+                                        -k*P1/(P2*P2));
+                }
+                fixingDate = d1 = d2;
+            }
+            if (result.empty())
+                // the rate is fully determined by past fixings
+                result.emplace_back(termStructure_->timeFromReference(maturityDate), 0.0);
+            break;
+          }
+          default:
+            return {};
+        }
+        return result;
+    }
+
     void OvernightIndexFutureRateHelper::setTermStructure(YieldTermStructure* t) {
         // do not set the relinkable handle as an observer -
         // force recalculation when needed

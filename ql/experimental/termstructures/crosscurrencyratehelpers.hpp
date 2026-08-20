@@ -173,6 +173,7 @@ namespace QuantLib {
         //! \name RateHelper interface
         //@{
         Real impliedQuote() const override;
+        std::vector<std::pair<Time, Real>> impliedQuoteSensitivities() const override;
 
         const ext::shared_ptr<ConstNotionalCrossCurrencyBasisSwap>& swap() const { return swap_; }
         //@}

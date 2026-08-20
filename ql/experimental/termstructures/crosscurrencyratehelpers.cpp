@@ -319,6 +319,73 @@ namespace QuantLib {
         return -(npvQuoteCcy - npvBaseCcy) / bps;
     }
 
+    std::vector<std::pair<Time, Real>>
+    ConstNotionalCrossCurrencyBasisSwapRateHelper::impliedQuoteSensitivities() const {
+        if (termStructure_ == nullptr || termStructureHandle_.empty() ||
+            collateralHandle_.empty())
+            return {};
+
+        // The bootstrapped curve discounts exactly one of the two legs;
+        // the forecast curves of both indices are exogenous.  Following
+        // impliedQuote(), the quote is
+        //
+        //   Q = -(npvQuote - npvBase)/bps
+        //
+        // with each leg NPV including the notional exchanges, and bps
+        // equal to -A_base or +A_quote depending on the leg the basis
+        // is quoted on.
+        bool bootstrappedOnBaseLeg = !isFxBaseCurrencyCollateralCurrency_;
+        const Leg& leg = bootstrappedOnBaseLeg ? baseCcyIborLeg_ : quoteCcyIborLeg_;
+        const YieldTermStructure& curve = **termStructureHandle_;
+        Date settlement = curve.referenceDate();
+
+        auto legAnnuity = [](const Leg& l, const Handle<YieldTermStructure>& h) {
+            Real annuity = 0.0;
+            Date refDate = h->referenceDate();
+            for (const auto& cf : l) {
+                if (cf->hasOccurred(refDate, true))
+                    continue;
+                auto cpn = ext::dynamic_pointer_cast<Coupon>(cf);
+                if (cpn == nullptr)
+                    return Real(0.0);
+                annuity += cpn->nominal()*cpn->accrualPeriod()*h->discount(cf->date());
+            }
+            return annuity;
+        };
+        Real bps = isBasisOnFxBaseCurrencyLeg_
+            ? -legAnnuity(baseCcyIborLeg_, baseCcyLegDiscountHandle())
+            : legAnnuity(quoteCcyIborLeg_, quoteCcyLegDiscountHandle());
+        if (bps == 0.0)
+            return {};
+
+        Real quote = impliedQuote();
+        // dQ/dP = -d(npvQuote - npvBase)/dP / bps - Q * dbps/dP / bps
+        Real npvSign = bootstrappedOnBaseLeg ? 1.0 : -1.0;
+        bool basisLegOnBootstrappedCurve =
+            (isBasisOnFxBaseCurrencyLeg_ == bootstrappedOnBaseLeg);
+        Real annuitySign = isBasisOnFxBaseCurrencyLeg_ ? -1.0 : 1.0;
+
+        std::vector<std::pair<Time, Real>> result;
+        for (const auto& cf : leg) {
+            if (cf->hasOccurred(settlement, true))
+                continue;
+            auto cpn = ext::dynamic_pointer_cast<Coupon>(cf);
+            if (cpn == nullptr)
+                return {};
+            Time t = curve.timeFromReference(cf->date());
+            Real derivative = npvSign*cf->amount()/bps;
+            if (basisLegOnBootstrappedCurve)
+                derivative -= quote*annuitySign*cpn->nominal()*cpn->accrualPeriod()/bps;
+            result.emplace_back(t, derivative);
+        }
+        // notional exchanges at start and maturity
+        result.emplace_back(curve.timeFromReference(initialNotionalExchangeDate_),
+                            -npvSign/bps);
+        result.emplace_back(curve.timeFromReference(finalNotionalExchangeDate_),
+                            npvSign/bps);
+        return result;
+    }
+
     void ConstNotionalCrossCurrencyBasisSwapRateHelper::accept(AcyclicVisitor& v) {
         auto* v1 = dynamic_cast<Visitor<ConstNotionalCrossCurrencyBasisSwapRateHelper>*>(&v);
         if (v1 != nullptr)

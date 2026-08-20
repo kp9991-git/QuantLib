@@ -23,7 +23,7 @@
  FOR A PARTICULAR PURPOSE.  See the license for more details.
 */
 
-#include <ql/cashflows/fixedratecoupon.hpp>
+#include <ql/cashflows/couponsensitivities.hpp>
 #include <ql/cashflows/iborcoupon.hpp>
 #include <ql/currency.hpp>
 #include <ql/indexes/swapindex.hpp>
@@ -698,90 +698,15 @@ namespace QuantLib {
         if (termStructure_ == nullptr || discountRelinkableHandle_.empty())
             return {};
         // a custom coupon pricer might apply adjustments that the
-        // formulas below don't know about
+        // analytical formulas don't know about
         if (couponPricer_ != nullptr)
             return {};
 
-        // The fair rate is Q = F/A, with F the floating-leg NPV per
-        // unit spread over the fixed leg, i.e.,
-        // F = sum_i N_i*tau_i*(g_i*f_i + cs_i + s)*P(pay_i) and
-        // A = sum_j N_j*tau_j*P(pay_j) the fixed-leg annuity; both are
-        // discounted on discountRelinkableHandle_, while the forwards
-        // f_i are forecast on the curve being bootstrapped.
-        const bool sameCurve = discountHandle_.empty();
-        const YieldTermStructure& discountCurve = **discountRelinkableHandle_;
-        Date settlement = discountCurve.referenceDate();
         Spread s = spread_.empty() ? 0.0 : spread_->value();
-
-        Real annuity = 0.0;
-        std::vector<std::pair<Date, Real>> fixedData; // (payment date, N*tau)
-        for (const auto& cf : swap_->fixedLeg()) {
-            if (cf->hasOccurred(settlement))
-                continue;
-            auto cpn = ext::dynamic_pointer_cast<FixedRateCoupon>(cf);
-            if (cpn == nullptr)
-                return {};
-            Real ntau = cpn->nominal()*cpn->accrualPeriod();
-            annuity += ntau*discountCurve.discount(cpn->date());
-            fixedData.emplace_back(cpn->date(), ntau);
-        }
-        if (annuity == 0.0)
-            return {};
-
-        struct FloatingData {
-            Date payDate, valueDate, endDate;
-            Real ntau, rate, gearing;
-            DiscountFactor discount;
-            Time spanning;
-            bool forecasted;
-        };
-        std::vector<FloatingData> floatingData;
-        Real floatingNPV = 0.0;
-        for (const auto& cf : swap_->floatingLeg()) {
-            if (cf->hasOccurred(settlement))
-                continue;
-            auto cpn = ext::dynamic_pointer_cast<IborCoupon>(cf);
-            if (cpn == nullptr)
-                return {};
-            FloatingData d;
-            d.payDate = cpn->date();
-            d.valueDate = cpn->fixingValueDate();
-            d.endDate = cpn->fixingEndDate();
-            d.ntau = cpn->nominal()*cpn->accrualPeriod();
-            d.gearing = cpn->gearing();
-            d.rate = d.gearing*cpn->indexFixing() + cpn->spread();
-            d.discount = discountCurve.discount(d.payDate);
-            d.spanning = cpn->spanningTime();
-            d.forecasted = !cpn->hasFixed();
-            floatingNPV += d.ntau*(d.rate + s)*d.discount;
-            floatingData.push_back(d);
-        }
-        Real fairRate = floatingNPV/annuity;
-
-        std::vector<std::pair<Time, Real>> result;
-        if (sameCurve) {
-            // sensitivities to the discount factors at the payment dates
-            for (const auto& [payDate, ntau] : fixedData)
-                result.emplace_back(termStructure_->timeFromReference(payDate),
-                                    -fairRate*ntau/annuity);
-            for (const auto& d : floatingData)
-                result.emplace_back(termStructure_->timeFromReference(d.payDate),
-                                    d.ntau*(d.rate + s)/annuity);
-        }
-        // sensitivities to the forecast discount factors,
-        // f_i = (P(valueDate)/P(endDate)-1)/spanningTime
-        for (const auto& d : floatingData) {
-            if (!d.forecasted)
-                continue;
-            DiscountFactor Dv = termStructure_->discount(d.valueDate);
-            DiscountFactor De = termStructure_->discount(d.endDate);
-            Real k = d.gearing*d.ntau*d.discount/(annuity*d.spanning);
-            result.emplace_back(termStructure_->timeFromReference(d.valueDate),
-                                k/De);
-            result.emplace_back(termStructure_->timeFromReference(d.endDate),
-                                -k*Dv/(De*De));
-        }
-        return result;
+        return detail::fairRateSensitivities(
+            swap_->fixedLeg(), swap_->floatingLeg(), s,
+            termStructure_, **discountRelinkableHandle_,
+            /*discountOnBootstrappedCurve=*/discountHandle_.empty());
     }
 
     void SwapRateHelper::accept(AcyclicVisitor& v) {

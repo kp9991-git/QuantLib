@@ -519,6 +519,7 @@
     <ClInclude Include="ql\cashflows\conundrumpricer.hpp" />
     <ClInclude Include="ql\cashflows\coupon.hpp" />
     <ClInclude Include="ql\cashflows\couponpricer.hpp" />
+    <ClInclude Include="ql\cashflows\couponsensitivities.hpp" />
     <ClInclude Include="ql\cashflows\cpicoupon.hpp" />
     <ClInclude Include="ql\cashflows\cpicouponpricer.hpp" />
     <ClInclude Include="ql\cashflows\digitalcmscoupon.hpp" />
@@ -1973,6 +1974,7 @@
     <ClCompile Include="ql\cashflows\conundrumpricer.cpp" />
     <ClCompile Include="ql\cashflows\coupon.cpp" />
     <ClCompile Include="ql\cashflows\couponpricer.cpp" />
+    <ClCompile Include="ql\cashflows\couponsensitivities.cpp" />
     <ClCompile Include="ql\cashflows\cpicoupon.cpp" />
     <ClCompile Include="ql\cashflows\cpicouponpricer.cpp" />
     <ClCompile Include="ql\cashflows\digitalcmscoupon.cpp" />

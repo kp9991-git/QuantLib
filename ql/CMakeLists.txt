@@ -10,6 +10,7 @@ set(QL_SOURCES
     cashflows/conundrumpricer.cpp
     cashflows/coupon.cpp
     cashflows/couponpricer.cpp
+    cashflows/couponsensitivities.cpp
     cashflows/cpicoupon.cpp
     cashflows/cpicouponpricer.cpp
     cashflows/digitalcmscoupon.cpp
@@ -997,6 +998,7 @@ set(QL_HEADERS
     cashflows/conundrumpricer.hpp
     cashflows/coupon.hpp
     cashflows/couponpricer.hpp
+    cashflows/couponsensitivities.hpp
     cashflows/cpicoupon.hpp
     cashflows/cpicouponpricer.hpp
     cashflows/digitalcmscoupon.hpp
