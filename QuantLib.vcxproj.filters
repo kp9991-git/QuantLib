@@ -1989,9 +1989,6 @@
     <ClInclude Include="ql\termstructures\bootstrapjacobian.hpp">
       <Filter>termstructures</Filter>
     </ClInclude>
-    <ClInclude Include="ql\termstructures\curvejacobiangraph.hpp">
-      <Filter>termstructures</Filter>
-    </ClInclude>
     <ClInclude Include="ql\termstructures\defaulttermstructure.hpp">
       <Filter>termstructures</Filter>
     </ClInclude>
@@ -4483,6 +4480,12 @@
       <Filter>experimental\termstructures</Filter>
     </ClInclude>
     <ClInclude Include="ql\experimental\termstructures\crosscurrencyratehelpers.hpp">
+      <Filter>experimental\termstructures</Filter>
+    </ClInclude>
+    <ClInclude Include="ql\experimental\termstructures\curvechainrulecalculator.hpp">
+      <Filter>experimental\termstructures</Filter>
+    </ClInclude>
+    <ClInclude Include="ql\experimental\termstructures\curvejacobiangraph.hpp">
       <Filter>experimental\termstructures</Filter>
     </ClInclude>
     <ClInclude Include="ql\pricingengines\vanilla\fdblackscholesshoutengine.hpp">

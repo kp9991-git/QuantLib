@@ -1241,6 +1241,7 @@ set(QL_HEADERS
     experimental/termstructures/basisswapratehelpers.hpp
     experimental/termstructures/crosscurrencyratehelpers.hpp
     experimental/termstructures/curvechainrulecalculator.hpp
+    experimental/termstructures/curvejacobiangraph.hpp
     experimental/variancegamma/analyticvariancegammaengine.hpp
     experimental/variancegamma/fftengine.hpp
     experimental/variancegamma/fftvanillaengine.hpp
@@ -2118,7 +2119,6 @@ set(QL_HEADERS
     termstructures/credit/piecewisedefaultcurve.hpp
     termstructures/credit/probabilitytraits.hpp
     termstructures/credit/survivalprobabilitystructure.hpp
-    termstructures/curvejacobiangraph.hpp
     termstructures/defaulttermstructure.hpp
     termstructures/globalbootstrap.hpp
     termstructures/globalbootstrapvars.hpp

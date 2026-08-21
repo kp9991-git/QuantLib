@@ -21,8 +21,8 @@
     \brief cross-curve Jacobians of a set of bootstrapped curves
 */
 
-#ifndef quantlib_curve_jacobian_graph_hpp
-#define quantlib_curve_jacobian_graph_hpp
+#ifndef quantlib_experimental_curve_jacobian_graph_hpp
+#define quantlib_experimental_curve_jacobian_graph_hpp
 
 #include <ql/math/array.hpp>
 #include <ql/math/matrix.hpp>

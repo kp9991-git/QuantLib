@@ -41,7 +41,7 @@
 #include <ql/pricingengines/swap/discountingswapengine.hpp>
 #include <ql/quotes/futuresconvadjustmentquote.hpp>
 #include <ql/quotes/simplequote.hpp>
-#include <ql/termstructures/curvejacobiangraph.hpp>
+#include <ql/experimental/termstructures/curvejacobiangraph.hpp>
 #include <ql/termstructures/globalbootstrap.hpp>
 #include <ql/termstructures/globalbootstrapvars.hpp>
 #include <ql/termstructures/localbootstrap.hpp>

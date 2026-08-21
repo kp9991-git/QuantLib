@@ -6,7 +6,8 @@ this_include_HEADERS = \
     all.hpp \
     basisswapratehelpers.hpp \
     crosscurrencyratehelpers.hpp \
-    curvechainrulecalculator.hpp
+    curvechainrulecalculator.hpp \
+    curvejacobiangraph.hpp
 
 cpp_files = \
     basisswapratehelpers.cpp \
