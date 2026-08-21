@@ -308,6 +308,10 @@ namespace QuantLib {
     OvernightIborBasisSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr || discountRelinkableHandle_.empty())
             return {};
+        // the margin is solved on the leg whose annuity impliedQuote() uses
+        if (basisOnIborLeg_)
+            return detail::fairBasisSensitivities(
+                swap_->leg(1), swap_->leg(0), **discountRelinkableHandle_);
         return detail::fairBasisSensitivities(
             swap_->leg(0), swap_->leg(1), **discountRelinkableHandle_);
     }
