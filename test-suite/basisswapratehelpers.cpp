@@ -864,6 +864,74 @@ BOOST_AUTO_TEST_CASE(testOvernightIborMarginOnIborLeg) {
     }
 }
 
+BOOST_AUTO_TEST_CASE(testOvernightIborMarginOnIborLegJacobian) {
+    BOOST_TEST_MESSAGE("Testing analytical Jacobian of the overnight-ibor basis-swap "
+                       "helper with the margin quoted on the ibor leg...");
+
+    // The margin leg selects the annuity impliedQuote() divides by and flips
+    // the sign of the fair basis.  The analytical sensitivities must follow,
+    // or a bootstrap driven by them stops at a wrong point.  Mismatched leg
+    // frequencies keep the two annuities apart, so the sign alone cannot
+    // mask a wrong annuity.
+    Natural settlementDays = 2;
+    auto calendar = UnitedStates(UnitedStates::GovernmentBond);
+    Handle<YieldTermStructure> knownForecastCurve(flatRate(0.01, Actual365Fixed()));
+    Handle<YieldTermStructure> discountCurve(flatRate(0.005, Actual365Fixed()));
+
+    for (bool basisOnIborLeg : {false, true}) {
+        auto baseIndex = ext::make_shared<Sofr>(knownForecastCurve);
+        auto otherIndex = ext::make_shared<USDLibor>(6 * Months);
+        std::vector<ext::shared_ptr<SimpleQuote>> quotes;
+        std::vector<ext::shared_ptr<RateHelper>> helpers;
+        for (const auto& [years, basis] : std::vector<std::pair<Integer, Spread>>{
+                 {1, 0.0010}, {2, 0.0012}, {5, 0.0015}, {10, 0.0020}}) {
+            auto q = ext::make_shared<SimpleQuote>(basisOnIborLeg ? -basis : basis);
+            quotes.push_back(q);
+            helpers.push_back(ext::make_shared<OvernightIborBasisSwapRateHelper>(
+                Handle<Quote>(q), years * Years, settlementDays, calendar, Following,
+                false, baseIndex, otherIndex, discountCurve, false, /*paymentLag=*/2,
+                Annual, std::nullopt, DateGeneration::Backward,
+                RateAveraging::Compound, false, StubIndexConfig{}, basisOnIborLeg));
+        }
+        auto curve = ext::make_shared<PiecewiseYieldCurve<Discount, LogLinear>>(
+            0, calendar, helpers, Actual365Fixed());
+        curve->enableExtrapolation();
+
+        std::vector<bool> analytic;
+        Matrix J = curve->jacobian(&analytic);
+        BOOST_REQUIRE_EQUAL(J.rows(), quotes.size());
+        BOOST_REQUIRE_EQUAL(J.columns(), curve->times().size() - 1);
+        for (Size i = 0; i < analytic.size(); ++i)
+            if (!analytic[i])
+                BOOST_ERROR("row " << i << " is not analytical (basisOnIborLeg = "
+                            << basisOnIborLeg << ")");
+
+        // bootstrap consistency requires J * dNodes/dQuotes = I
+        Size rows = J.rows(), cols = J.columns();
+        Matrix M(cols, rows);
+        for (Size k = 0; k < rows; ++k) {
+            Real q0 = quotes[k]->value(), h = 1.0e-6;
+            quotes[k]->setValue(q0 + h);
+            std::vector<Real> up = curve->data();
+            quotes[k]->setValue(q0 - h);
+            std::vector<Real> dn = curve->data();
+            quotes[k]->setValue(q0);
+            for (Size j = 0; j < cols; ++j)
+                M[j][k] = (up[j + 1] - dn[j + 1]) / (2.0 * h);
+        }
+        Matrix P = J * M;
+        for (Size i = 0; i < rows; ++i)
+            for (Size k = 0; k < rows; ++k) {
+                Real expected = (i == k) ? 1.0 : 0.0;
+                if (std::fabs(P[i][k] - expected) > 1.0e-5)
+                    BOOST_ERROR("product of Jacobian and node/quote sensitivities "
+                                "is not the identity at (" << i << "," << k << "): "
+                                << P[i][k] << " (expected " << expected
+                                << ", basisOnIborLeg = " << basisOnIborLeg << ")");
+            }
+    }
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 BOOST_AUTO_TEST_SUITE_END()
