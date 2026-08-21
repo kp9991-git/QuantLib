@@ -49,7 +49,7 @@ namespace QuantLib {
             }
 
             void addSensitivities(QuoteSensitivities& result,
-                                  const TaggedSensitivities& entries,
+                                  const CurvePointSensitivities& entries,
                                   Real scale) {
                 for (const auto& e : entries)
                     result.sensitivities[e.curve].emplace_back(e.date, scale*e.derivative);

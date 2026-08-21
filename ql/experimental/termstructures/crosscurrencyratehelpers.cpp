@@ -499,7 +499,7 @@ namespace QuantLib {
 
         // base-to-quote conversion at unit spot
         Real fx = quoteDisc->discount(fxSettle)/baseDisc->discount(fxSettle);
-        const detail::TaggedSensitivities dFx = {
+        const detail::CurvePointSensitivities dFx = {
             {quoteKey, fxSettle, fx/quoteDisc->discount(fxSettle)},
             {baseKey, fxSettle, -fx/baseDisc->discount(fxSettle)}};
 
@@ -530,7 +530,7 @@ namespace QuantLib {
         };
         // d(scale * fxRate)/dP for both discount curves
         auto addResetSensitivities = [&](const FxReset& reset, const Reset& r, Real scale,
-                                         detail::TaggedSensitivities& out) {
+                                         detail::CurvePointSensitivities& out) {
             if (!r.forecast)
                 return;
             out.push_back({resetKey, fxSettle,
