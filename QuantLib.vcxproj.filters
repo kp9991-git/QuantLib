@@ -516,9 +516,6 @@
     <ClInclude Include="ql\cashflows\couponpricer.hpp">
       <Filter>cashflows</Filter>
     </ClInclude>
-    <ClInclude Include="ql\cashflows\couponsensitivities.hpp">
-      <Filter>cashflows</Filter>
-    </ClInclude>
     <ClInclude Include="ql\cashflows\digitalcmscoupon.hpp">
       <Filter>cashflows</Filter>
     </ClInclude>
@@ -1987,9 +1984,6 @@
       <Filter>termstructures</Filter>
     </ClInclude>
     <ClInclude Include="ql\termstructures\bootstrapjacobian.hpp">
-      <Filter>termstructures</Filter>
-    </ClInclude>
-    <ClInclude Include="ql\termstructures\curvejacobiangraph.hpp">
       <Filter>termstructures</Filter>
     </ClInclude>
     <ClInclude Include="ql\termstructures\defaulttermstructure.hpp">
@@ -4485,6 +4479,15 @@
     <ClInclude Include="ql\experimental\termstructures\crosscurrencyratehelpers.hpp">
       <Filter>experimental\termstructures</Filter>
     </ClInclude>
+    <ClInclude Include="ql\experimental\termstructures\curvechainrulecalculator.hpp">
+      <Filter>experimental\termstructures</Filter>
+    </ClInclude>
+    <ClInclude Include="ql\experimental\termstructures\curvejacobiangraph.hpp">
+      <Filter>experimental\termstructures</Filter>
+    </ClInclude>
+    <ClInclude Include="ql\experimental\termstructures\quotesensitivitycalculator.hpp">
+      <Filter>experimental\termstructures</Filter>
+    </ClInclude>
     <ClInclude Include="ql\pricingengines\vanilla\fdblackscholesshoutengine.hpp">
       <Filter>pricingengines\vanilla</Filter>
     </ClInclude>
@@ -4680,9 +4683,6 @@
       <Filter>cashflows</Filter>
     </ClCompile>
     <ClCompile Include="ql\cashflows\couponpricer.cpp">
-      <Filter>cashflows</Filter>
-    </ClCompile>
-    <ClCompile Include="ql\cashflows\couponsensitivities.cpp">
       <Filter>cashflows</Filter>
     </ClCompile>
     <ClCompile Include="ql\cashflows\digitalcmscoupon.cpp">
@@ -7403,6 +7403,9 @@
       <Filter>experimental\termstructures</Filter>
     </ClCompile>
     <ClCompile Include="ql\experimental\termstructures\crosscurrencyratehelpers.cpp">
+      <Filter>experimental\termstructures</Filter>
+    </ClCompile>
+    <ClCompile Include="ql\experimental\termstructures\quotesensitivitycalculator.cpp">
       <Filter>experimental\termstructures</Filter>
     </ClCompile>
     <ClCompile Include="ql\experimental\asian\analytic_cont_geom_av_price_heston.cpp">

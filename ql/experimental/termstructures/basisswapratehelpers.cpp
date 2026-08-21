@@ -18,7 +18,7 @@
  FOR A PARTICULAR PURPOSE.  See the license for more details.
 */
 
-#include <ql/cashflows/couponsensitivities.hpp>
+#include <ql/experimental/termstructures/quotesensitivitycalculator.hpp>
 #include <ql/cashflows/iborcoupon.hpp>
 #include <ql/cashflows/overnightindexedcoupon.hpp>
 #include <ql/experimental/termstructures/basisswapratehelpers.hpp>
@@ -424,7 +424,7 @@ namespace QuantLib {
 
     void OvernightOvernightBasisSwapRateHelper::setTermStructure(YieldTermStructure* t) {
         // Do not set the relinkable handle as an observer: force
-        // recalculation when needed; the index is not lazy.
+        // force recalculation because the index is not lazy
         bool observer = false;
 
         ext::shared_ptr<YieldTermStructure> temp(t, null_deleter());

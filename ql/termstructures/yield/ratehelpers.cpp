@@ -23,7 +23,7 @@
  FOR A PARTICULAR PURPOSE.  See the license for more details.
 */
 
-#include <ql/cashflows/couponsensitivities.hpp>
+#include <ql/experimental/termstructures/quotesensitivitycalculator.hpp>
 #include <ql/cashflows/iborcoupon.hpp>
 #include <ql/currency.hpp>
 #include <ql/indexes/swapindex.hpp>
@@ -170,13 +170,11 @@ namespace QuantLib {
         if (termStructure_ == nullptr)
             return {};
         // Q = 100 * (1 - ((P1/P2-1)/yearFraction + convexityAdjustment))
-        DiscountFactor d1 = termStructure_->discount(earliestDate_);
-        DiscountFactor d2 = termStructure_->discount(maturityDate_);
         QuoteSensitivities result;
+        detail::addSimpleForwardSensitivities(result, *termStructure_,
+                                              earliestDate_, maturityDate_,
+                                              yearFraction_, -100.0);
         result.available = true;
-        result.sensitivities[termStructure_] =
-            {{earliestDate_, -100.0/(yearFraction_*d2)},
-             {maturityDate_, 100.0*d1/(yearFraction_*d2*d2)}};
         return result;
     }
 
@@ -236,13 +234,9 @@ namespace QuantLib {
         Date d1 = iborIndex_->valueDate(fixingDate_);
         Date d2 = iborIndex_->maturityDate(d1);
         Time tau = iborIndex_->dayCounter().yearFraction(d1, d2);
-        DiscountFactor D1 = termStructure_->discount(d1);
-        DiscountFactor D2 = termStructure_->discount(d2);
         QuoteSensitivities result;
+        detail::addSimpleForwardSensitivities(result, *termStructure_, d1, d2, tau);
         result.available = true;
-        result.sensitivities[termStructure_] =
-            {{d1, 1.0/(tau*D2)},
-             {d2, -D1/(tau*D2*D2)}};
         return result;
     }
 
@@ -416,13 +410,9 @@ namespace QuantLib {
             d2 = maturityDate_;
             tau = spanningTime_;
         }
-        DiscountFactor D1 = termStructure_->discount(d1);
-        DiscountFactor D2 = termStructure_->discount(d2);
         QuoteSensitivities result;
+        detail::addSimpleForwardSensitivities(result, *termStructure_, d1, d2, tau);
         result.available = true;
-        result.sensitivities[termStructure_] =
-            {{d1, 1.0/(tau*D2)},
-             {d2, -D1/(tau*D2*D2)}};
         return result;
     }
 
@@ -608,7 +598,7 @@ namespace QuantLib {
         // 1. do not pass the spread here, as it might be a Quote
         //    i.e. it can dynamically change
         // 2. input discount curve Handle might be empty now but it could
-        //    be assigned a curve later; use a RelinkableHandle here
+        //    be assigned a curve later, so use a RelinkableHandle here
         auto tmp = MakeVanillaSwap(tenor_, iborIndex_, 0.0, fwdStart_)
             .withEffectiveDate(startDate_)
             .withTerminationDate(endDate_)

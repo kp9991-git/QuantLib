@@ -21,7 +21,7 @@
 #include <ql/instruments/makeois.hpp>
 #include <ql/instruments/simplifynotificationgraph.hpp>
 #include <ql/cashflows/couponpricer.hpp>
-#include <ql/cashflows/couponsensitivities.hpp>
+#include <ql/experimental/termstructures/quotesensitivitycalculator.hpp>
 #include <ql/cashflows/overnightindexedcoupon.hpp>
 #include <ql/pricingengines/swap/discountingswapengine.hpp>
 #include <ql/termstructures/yield/oisratehelper.hpp>
@@ -129,7 +129,7 @@ namespace QuantLib {
         // 1. do not pass the spread here, as it might be a Quote
         //    i.e. it can dynamically change
         // 2. input discount curve Handle might be empty now but it could
-        //    be assigned a curve later; use a RelinkableHandle here
+        //    be assigned a curve later, so use a RelinkableHandle here
         auto tmp = MakeOIS(tenor_, overnightIndex_, 0.0, forwardStart_)
             .withDiscountingTermStructure(discountRelinkableHandle_)
             .withEffectiveDate(startDate_)
