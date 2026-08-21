@@ -153,9 +153,8 @@ namespace QuantLib {
 
         /*! Jacobian of free curve nodes with respect to helper quotes.
             For a stand-alone curve, this is inverse(jacobian()). For a
-            MultiCurve group, columns cover this curve's quotes first and
-            then other members in registration order. Group feedback is
-            included.
+            MultiCurve group, columns cover all members' quotes in
+            registration order. Group feedback is included.
         */
         Matrix inverseJacobian(std::vector<bool>* analyticRows = nullptr) const;
         //@}
@@ -251,7 +250,7 @@ namespace QuantLib {
         calculate();
         if constexpr (detail::hasJacobianGroup<bootstrap_type>) {
             auto group = bootstrap_.jacobianGroup();
-            if (group.members.size() > 1) {
+            if (!group.members.empty()) {
                 // differentiate known dependent wrappers numerically
                 std::vector<Size> rowOffsets;
                 detail::CurveCrossJacobianContext context;
@@ -260,10 +259,14 @@ namespace QuantLib {
                 Matrix S = detail::groupNodeQuoteJacobian(
                     group.members, &rowOffsets, nullptr, analyticRows,
                     context);
-                // this curve occupies the first row block
-                Matrix result(rowOffsets[1], S.columns());
+                QL_REQUIRE(group.target < group.members.size(),
+                           "invalid target curve in Jacobian group");
+                Size first = rowOffsets[group.target];
+                Size last = rowOffsets[group.target + 1];
+                Matrix result(last - first, S.columns());
                 for (Size j = 0; j < result.rows(); ++j)
-                    std::copy(S.row_begin(j), S.row_end(j), result.row_begin(j));
+                    std::copy(S.row_begin(first + j), S.row_end(first + j),
+                              result.row_begin(j));
                 return result;
             }
         }

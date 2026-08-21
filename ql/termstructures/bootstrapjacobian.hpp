@@ -96,6 +96,8 @@ namespace QuantLib {
         //! system curves and known dependent wrappers in a multi-curve group
         struct CurveJacobianGroup {
             std::vector<CurveJacobianNode> members;
+            //! index of the curve that requested the group
+            Size target = 0;
             std::set<const TermStructure*> dependents;
         };
 
@@ -341,9 +343,6 @@ namespace QuantLib {
                                          const CurveJacobianNode& b,
                                          const CurveCrossJacobianContext& context,
                                          std::vector<bool>* analyticRows = nullptr) {
-            if (a.id == b.id)
-                return a.ownJacobian(analyticRows);
-
             a.ensure();
             b.ensure();
             auto helpers = a.aliveHelpers();
