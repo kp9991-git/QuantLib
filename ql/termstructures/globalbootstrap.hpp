@@ -167,7 +167,7 @@ template <class Curve> class GlobalBootstrap final : public MultiCurveBootstrapC
                     bool analyticJacobian = false);
     void setup(Curve *ts);
     void calculate() const;
-    //! joint curve group with this curve first
+    //! joint curve group in MultiCurve registration order
     /*! Returns no members when this curve is not in a multi-curve group. */
     detail::CurveJacobianGroup jacobianGroup() const;
 
@@ -339,16 +339,19 @@ detail::CurveJacobianGroup GlobalBootstrap<Curve>::jacobianGroup() const {
     if (parentBootstrapper_ == nullptr || ts_ == nullptr)
         return {};
     detail::CurveJacobianGroup group;
-    group.members.push_back(jacobianNode());
+    bool targetFound = false;
     for (const auto* c : parentBootstrapper_->contributors()) {
-        if (c == static_cast<const MultiCurveBootstrapContributor*>(this))
-            continue;
         detail::CurveJacobianNode n = c->jacobianNode();
         QL_REQUIRE(n.curve != nullptr,
                    "a curve bootstrapped jointly with this one does not "
                    "support the Jacobian machinery");
+        if (c == static_cast<const MultiCurveBootstrapContributor*>(this)) {
+            group.target = group.members.size();
+            targetFound = true;
+        }
         group.members.push_back(std::move(n));
     }
+    QL_REQUIRE(targetFound, "requesting curve is not in its MultiCurve group");
     group.dependents = parentBootstrapper_->observerTermStructures();
     return group;
 }

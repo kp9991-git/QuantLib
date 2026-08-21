@@ -2953,9 +2953,10 @@ BOOST_AUTO_TEST_CASE(testCoDependentCurveJacobian) {
         ext::shared_ptr<CurveType> curve;
         std::vector<std::vector<ext::shared_ptr<SimpleQuote>>*> quotes;
     };
+    // Every member must expose the same registration-ordered quote columns.
     std::vector<Member> members = {
         {"3M", curve3m, {&quotes3m, &quotes6m}},
-        {"6M", curve6m, {&quotes6m, &quotes3m}}};
+        {"6M", curve6m, {&quotes3m, &quotes6m}}};
 
     Real h = 1.0e-6, tolerance = 1.0e-5;
     for (auto& m : members) {
@@ -2984,6 +2985,152 @@ BOOST_AUTO_TEST_CASE(testCoDependentCurveJacobian) {
                                     << " was predicted");
                 }
                 ++k;
+            }
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(testMultiCurveJacobianThroughDependentCurve) {
+
+    BOOST_TEST_MESSAGE("Testing a MultiCurve Jacobian through a dependent curve...");
+
+    Date today = Settings::instance().evaluationDate();
+    RelinkableHandle<YieldTermStructure> projection, discount;
+    auto index = ext::make_shared<Euribor3M>(projection);
+
+    std::vector<ext::shared_ptr<SimpleQuote>> quotes;
+    std::vector<ext::shared_ptr<RateHelper>> helpers;
+    for (Integer y : {1, 2, 3, 5, 7, 10}) {
+        auto quote = ext::make_shared<SimpleQuote>(0.025 + 0.0002 * y);
+        quotes.push_back(quote);
+        helpers.push_back(ext::make_shared<SwapRateHelper>(
+            Handle<Quote>(quote), y * Years, TARGET(), Annual, Following,
+            Thirty360(Thirty360::BondBasis), index, Handle<Quote>(), 0 * Days,
+            discount));
+    }
+
+    using CurveType = CoDependentCurveType;
+    auto curve = ext::make_shared<CurveType>(
+        today, helpers, Actual360(), LogLinear(),
+        GlobalBootstrap<CurveType>(1.0e-11));
+    Handle<Quote> spread(ext::make_shared<SimpleQuote>(0.01));
+    auto wrapper = ext::make_shared<ZeroSpreadedTermStructure>(projection, spread);
+
+    auto multiCurve = ext::make_shared<MultiCurve>(1.0e-11);
+    multiCurve->addBootstrappedCurve(
+        projection, ext::shared_ptr<YieldTermStructure>(curve));
+    multiCurve->addNonBootstrappedCurve(
+        discount, ext::shared_ptr<YieldTermStructure>(wrapper));
+
+    std::vector<bool> analytic;
+    Matrix S = curve->inverseJacobian(&analytic);
+    BOOST_REQUIRE_EQUAL(S.rows(), curve->data().size() - 1);
+    BOOST_REQUIRE_EQUAL(S.columns(), quotes.size());
+    BOOST_REQUIRE_EQUAL(analytic.size(), quotes.size());
+    BOOST_CHECK(std::none_of(analytic.begin(), analytic.end(),
+                             [](bool flag) { return flag; }));
+
+    Real h = 1.0e-6, tolerance = 1.0e-5;
+    for (Size k = 0; k < quotes.size(); ++k) {
+        Real q0 = quotes[k]->value();
+        quotes[k]->setValue(q0 + h);
+        std::vector<Real> up = curve->data();
+        quotes[k]->setValue(q0 - h);
+        std::vector<Real> dn = curve->data();
+        quotes[k]->setValue(q0);
+        curve->data();
+
+        for (Size j = 0; j + 1 < up.size(); ++j) {
+            Real fd = (up[j + 1] - dn[j + 1])/(2.0 * h);
+            if (std::fabs(fd - S[j][k]) > tolerance)
+                BOOST_ERROR("node " << j << " responds to quote " << k
+                            << " through the dependent curve with " << fd
+                            << ", but " << S[j][k] << " was predicted");
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(testMultiCurveJacobianThroughDependentCurveWithOtherContributor) {
+
+    BOOST_TEST_MESSAGE("Testing a MultiCurve Jacobian through a dependent curve "
+                       "with another contributor...");
+
+    Date today = Settings::instance().evaluationDate();
+    RelinkableHandle<YieldTermStructure> projection, discount, auxiliary;
+    auto index = ext::make_shared<Euribor3M>(projection);
+
+    std::vector<ext::shared_ptr<SimpleQuote>> projectionQuotes;
+    std::vector<ext::shared_ptr<RateHelper>> projectionHelpers;
+    for (Integer y : {1, 2, 3, 5, 7, 10}) {
+        auto quote = ext::make_shared<SimpleQuote>(0.025 + 0.0002 * y);
+        projectionQuotes.push_back(quote);
+        projectionHelpers.push_back(ext::make_shared<SwapRateHelper>(
+            Handle<Quote>(quote), y * Years, TARGET(), Annual, Following,
+            Thirty360(Thirty360::BondBasis), index, Handle<Quote>(), 0 * Days,
+            discount));
+    }
+
+    std::vector<ext::shared_ptr<SimpleQuote>> auxiliaryQuotes;
+    std::vector<ext::shared_ptr<RateHelper>> auxiliaryHelpers;
+    for (const Period& tenor : {6 * Months, 1 * Years, 2 * Years}) {
+        auto quote = ext::make_shared<SimpleQuote>(
+            0.02 + 0.001 * auxiliaryQuotes.size());
+        auxiliaryQuotes.push_back(quote);
+        auxiliaryHelpers.push_back(ext::make_shared<DepositRateHelper>(
+            Handle<Quote>(quote), tenor, 2, TARGET(), ModifiedFollowing,
+            true, Actual360()));
+    }
+
+    using CurveType = CoDependentCurveType;
+    auto projectionCurve = ext::make_shared<CurveType>(
+        today, projectionHelpers, Actual360(), LogLinear(),
+        GlobalBootstrap<CurveType>(1.0e-11));
+    auto auxiliaryCurve = ext::make_shared<CurveType>(
+        today, auxiliaryHelpers, Actual360(), LogLinear(),
+        GlobalBootstrap<CurveType>(1.0e-11));
+    Handle<Quote> spread(ext::make_shared<SimpleQuote>(0.01));
+    auto wrapper = ext::make_shared<ZeroSpreadedTermStructure>(projection, spread);
+
+    auto multiCurve = ext::make_shared<MultiCurve>(1.0e-11);
+    multiCurve->addBootstrappedCurve(
+        projection, ext::shared_ptr<YieldTermStructure>(projectionCurve));
+    multiCurve->addBootstrappedCurve(
+        auxiliary, ext::shared_ptr<YieldTermStructure>(auxiliaryCurve));
+    multiCurve->addNonBootstrappedCurve(
+        discount, ext::shared_ptr<YieldTermStructure>(wrapper));
+
+    std::vector<ext::shared_ptr<SimpleQuote>> quotes = projectionQuotes;
+    quotes.insert(quotes.end(), auxiliaryQuotes.begin(), auxiliaryQuotes.end());
+
+    struct Member {
+        std::string name;
+        ext::shared_ptr<CurveType> curve;
+    };
+    std::vector<Member> members = {
+        {"projection", projectionCurve}, {"auxiliary", auxiliaryCurve}};
+
+    Real h = 1.0e-6, tolerance = 1.0e-5;
+    for (const auto& member : members) {
+        Matrix S = member.curve->inverseJacobian();
+        BOOST_REQUIRE_EQUAL(S.rows(), member.curve->data().size() - 1);
+        BOOST_REQUIRE_EQUAL(S.columns(), quotes.size());
+
+        for (Size k = 0; k < quotes.size(); ++k) {
+            Real q0 = quotes[k]->value();
+            quotes[k]->setValue(q0 + h);
+            std::vector<Real> up = member.curve->data();
+            quotes[k]->setValue(q0 - h);
+            std::vector<Real> dn = member.curve->data();
+            quotes[k]->setValue(q0);
+            member.curve->data();
+
+            for (Size j = 0; j + 1 < up.size(); ++j) {
+                Real fd = (up[j + 1] - dn[j + 1])/(2.0 * h);
+                if (std::fabs(fd - S[j][k]) > tolerance)
+                    BOOST_ERROR("node " << j << " of the " << member.name
+                                << " curve responds to group quote " << k
+                                << " with " << fd << ", but " << S[j][k]
+                                << " was predicted");
             }
         }
     }
