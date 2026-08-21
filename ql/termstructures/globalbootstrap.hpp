@@ -30,6 +30,7 @@
 #include <ql/termstructures/bootstraphelper.hpp>
 #include <ql/termstructures/bootstrapjacobian.hpp>
 #include <ql/utilities/dataformatters.hpp>
+#include <ql/utilities/null_deleter.hpp>
 #include <algorithm>
 #include <functional>
 #include <tuple>
@@ -49,24 +50,51 @@ public:
     virtual void setCostFunctionArgument(const Array& v) const = 0;
     virtual Array evaluateCostFunction() const = 0;
     virtual void setToValid() const = 0;
+    //! type-erased view of the contributor's curve, used to assemble
+    //! cross-curve Jacobians; a node with a null curve (the default)
+    //! means that the contributor does not support this
+    virtual detail::CurveJacobianNode jacobianNode() const { return {}; }
+    //! weights applied to the contributor's residuals, when the
+    //! analytical Jacobian of its cost function is supported; an empty
+    //! array (the default) means that it is not
+    virtual Array residualWeights() const { return {}; }
+    //! derivative of the contributor's variable transformation at the
+    //! given argument; an empty array (the default) means not supported
+    virtual Array transformDerivatives(const Array&) const { return {}; }
 };
 
 class MultiCurveBootstrap : public ext::enable_shared_from_this<MultiCurveBootstrap> {
   public:
-    explicit MultiCurveBootstrap(Real accuracy);
+    explicit MultiCurveBootstrap(Real accuracy, bool analyticJacobian = false);
     explicit MultiCurveBootstrap(ext::shared_ptr<OptimizationMethod> optimizer = nullptr,
-                        ext::shared_ptr<EndCriteria> endCriteria = nullptr);
+                        ext::shared_ptr<EndCriteria> endCriteria = nullptr,
+                        bool analyticJacobian = false);
     void add(const MultiCurveBootstrapContributor* c);
     void addObserver(Observer* o);
     void runMultiCurveBootstrap();
     void setOtherContributorsToValid() const;
     void finalizeCalculation();
+    const std::vector<const MultiCurveBootstrapContributor*>& contributors() const {
+        return contributors_;
+    }
+    //! the term structures among the registered observers, i.e., the
+    //! non-bootstrapped curves of the group; they are functions of the
+    //! member curves and must not be treated as constants
+    std::set<const TermStructure*> observerTermStructures() const;
 
   private:
+    class StackedCostFunction;
+    void setCostFunctionArguments(const Array& x, const std::vector<Size>& guessSizes) const;
+    bool analyticCostJacobian(Matrix& jac,
+                              const Array& x,
+                              const std::vector<Size>& guessSizes) const;
     ext::shared_ptr<OptimizationMethod> optimizer_;
     ext::shared_ptr<EndCriteria> endCriteria_;
     std::vector<const MultiCurveBootstrapContributor*> contributors_;
     std::vector<Observer*> observers_;
+    Real accuracy_ = 1e-10;
+    bool analyticJacobian_ = false;
+    bool defaultOptimizer_ = false;
 };
 
 class AdditionalBootstrapVariables {
@@ -144,6 +172,11 @@ template <class Curve> class GlobalBootstrap final : public MultiCurveBootstrapC
                     bool analyticJacobian = false);
     void setup(Curve *ts);
     void calculate() const;
+    //! type-erased views of all the curves bootstrapped jointly with
+    //! this one, own curve first, along with the group's known
+    //! dependent curves; no members when the curve is not part of a
+    //! multi-curve group
+    detail::CurveJacobianGroup jacobianGroup() const;
 
   private:
     template <class T, class = void>
@@ -160,6 +193,9 @@ template <class Curve> class GlobalBootstrap final : public MultiCurveBootstrapC
     void setCostFunctionArgument(const Array& v) const override;
     Array evaluateCostFunction() const override;
     void setToValid() const override;
+    detail::CurveJacobianNode jacobianNode() const override;
+    Array residualWeights() const override;
+    Array transformDerivatives(const Array& x) const override;
     bool analyticCostJacobian(Matrix& jac, const Array& x) const;
 
     // cost function using the analytical Jacobian when available
@@ -267,6 +303,63 @@ GlobalBootstrap<Curve>::GlobalBootstrap(
                   std::move(instrumentWeights),
                   std::move(initialGuessFn),
                   analyticJacobian) {}
+
+template <class Curve>
+detail::CurveJacobianNode GlobalBootstrap<Curve>::jacobianNode() const {
+    if constexpr (!detail::supportsCurveJacobianNode<Curve>) {
+        // e.g., inflation curves
+        return {};
+    } else {
+        if (ts_ == nullptr)
+            return {};
+        // non-owning: the curve owns this bootstrap object, not vice versa
+        ext::shared_ptr<Curve> curve(ts_, null_deleter());
+        return detail::BootstrapJacobianAccess<Curve>::makeNode(curve);
+    }
+}
+
+template <class Curve>
+Array GlobalBootstrap<Curve>::residualWeights() const {
+    // additional error terms and variables are outside the scope of
+    // the analytical machinery
+    if (additionalPenalties_ || additionalVariables_ || !aliveAdditionalHelpers_.empty())
+        return {};
+    return Array(aliveInstrumentWeights_.begin(), aliveInstrumentWeights_.end());
+}
+
+template <class Curve>
+Array GlobalBootstrap<Curve>::transformDerivatives(const Array& x) const {
+    Array d(x.size(), 1.0);
+    if constexpr (hasTransform<Traits>) {
+        for (Size j = 0; j < x.size(); ++j) {
+            Real h = 1.0e-7 * std::max(std::abs(x[j]), 1.0);
+            d[j] = (Traits::transformDirect(x[j] + h, j + 1, ts_) -
+                    Traits::transformDirect(x[j] - h, j + 1, ts_)) / (2.0 * h);
+        }
+    }
+    return d;
+}
+
+template <class Curve>
+detail::CurveJacobianGroup GlobalBootstrap<Curve>::jacobianGroup() const {
+    if constexpr (!detail::supportsCurveJacobianNode<Curve>)
+        return {};
+    if (parentBootstrapper_ == nullptr || ts_ == nullptr)
+        return {};
+    detail::CurveJacobianGroup group;
+    group.members.push_back(jacobianNode());
+    for (const auto* c : parentBootstrapper_->contributors()) {
+        if (c == static_cast<const MultiCurveBootstrapContributor*>(this))
+            continue;
+        detail::CurveJacobianNode n = c->jacobianNode();
+        QL_REQUIRE(n.curve != nullptr,
+                   "a curve bootstrapped jointly with this one does not "
+                   "support the Jacobian machinery");
+        group.members.push_back(std::move(n));
+    }
+    group.dependents = parentBootstrapper_->observerTermStructures();
+    return group;
+}
 
 template <class Curve>
 void GlobalBootstrap<Curve>::setParentBootstrapper(const ext::shared_ptr<MultiCurveBootstrap>& b) const {

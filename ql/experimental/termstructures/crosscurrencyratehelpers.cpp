@@ -22,6 +22,8 @@
 #include <ql/cashflows/overnightindexedcoupon.hpp>
 #include <ql/cashflows/iborcoupon.hpp>
 #include <ql/cashflows/cashflows.hpp>
+#include <ql/cashflows/couponsensitivities.hpp>
+#include <ql/cashflows/floatingratecoupon.hpp>
 #include <ql/cashflows/simplecashflow.hpp>
 #include <ql/cashflows/fixedratecoupon.hpp>
 #include <ql/currencies/exchangeratemanager.hpp>
@@ -322,70 +324,69 @@ namespace QuantLib {
         return -(npvQuoteCcy - npvBaseCcy) / bps;
     }
 
-    std::vector<std::pair<Time, Real>>
-    ConstNotionalCrossCurrencyBasisSwapRateHelper::impliedQuoteSensitivities() const {
+    QuoteSensitivities
+    ConstNotionalCrossCurrencyBasisSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr || termStructureHandle_.empty() ||
             collateralHandle_.empty())
             return {};
 
-        // The bootstrapped curve discounts exactly one of the two legs;
-        // the forecast curves of both indices are exogenous.  Following
-        // impliedQuote(), the quote is
+        // Following impliedQuote(), the quote is
         //
         //   Q = -(npvQuote - npvBase)/bps
         //
-        // with each leg NPV including the notional exchanges, and bps
-        // equal to -A_base or +A_quote depending on the leg the basis
-        // is quoted on.
-        bool bootstrappedOnBaseLeg = !isFxBaseCurrencyCollateralCurrency_;
-        const Leg& leg = bootstrappedOnBaseLeg ? baseCcyIborLeg_ : quoteCcyIborLeg_;
-        const YieldTermStructure& curve = **termStructureHandle_;
-        Date settlement = curve.referenceDate();
+        // with each leg NPV, in its own currency, discounted on its own
+        // curve and including the notional exchanges, and bps equal to
+        // -A_base or +A_quote depending on the leg the basis is quoted
+        // on.  Each leg contributes sensitivities to its discount curve
+        // and to the forecast curves of its coupons.
+        QuoteSensitivities result;
+        const Leg* legs[2] = {&baseCcyIborLeg_, &quoteCcyIborLeg_};
+        const Handle<YieldTermStructure> discountHandles[2] = {
+            baseCcyLegDiscountHandle(), quoteCcyLegDiscountHandle()};
 
-        auto legAnnuity = [](const Leg& l, const Handle<YieldTermStructure>& h) {
-            Real annuity = 0.0;
-            Date refDate = h->referenceDate();
-            for (const auto& cf : l) {
-                if (cf->hasOccurred(refDate, true))
-                    continue;
-                auto cpn = ext::dynamic_pointer_cast<Coupon>(cf);
-                if (cpn == nullptr)
-                    return Real(0.0);
-                annuity += cpn->nominal()*cpn->accrualPeriod()*h->discount(cf->date());
-            }
-            return annuity;
-        };
-        Real bps = isBasisOnFxBaseCurrencyLeg_
-            ? -legAnnuity(baseCcyIborLeg_, baseCcyLegDiscountHandle())
-            : legAnnuity(quoteCcyIborLeg_, quoteCcyLegDiscountHandle());
+        std::vector<detail::FloatingFlowData> flows[2];
+        for (Size legNo = 0; legNo < 2; ++legNo) {
+            const YieldTermStructure& discountCurve = **discountHandles[legNo];
+            if (!detail::analyzeFloatingLeg(*legs[legNo], discountCurve.referenceDate(),
+                                            discountCurve, flows[legNo], result,
+                                            /*includeSettlementDateFlows=*/true))
+                return {};
+        }
+
+        Size basisLegNo = isBasisOnFxBaseCurrencyLeg_ ? 0 : 1;
+        Real annuitySign = basisLegNo == 0 ? -1.0 : 1.0;
+        Real annuity = 0.0;
+        for (const auto& d : flows[basisLegNo])
+            annuity += d.ntau*d.discount;
+        Real bps = annuitySign*annuity;
         if (bps == 0.0)
             return {};
 
         Real quote = impliedQuote();
         // dQ/dP = -d(npvQuote - npvBase)/dP / bps - Q * dbps/dP / bps
-        Real npvSign = bootstrappedOnBaseLeg ? 1.0 : -1.0;
-        bool basisLegOnBootstrappedCurve =
-            (isBasisOnFxBaseCurrencyLeg_ == bootstrappedOnBaseLeg);
-        Real annuitySign = isBasisOnFxBaseCurrencyLeg_ ? -1.0 : 1.0;
-
-        std::vector<std::pair<Time, Real>> result;
-        for (const auto& cf : leg) {
-            if (cf->hasOccurred(settlement, true))
-                continue;
-            auto cpn = ext::dynamic_pointer_cast<Coupon>(cf);
-            if (cpn == nullptr)
-                return {};
-            Time t = curve.timeFromReference(cf->date());
-            Real derivative = npvSign*cf->amount()/bps;
-            if (basisLegOnBootstrappedCurve)
-                derivative -= quote*annuitySign*cpn->nominal()*cpn->accrualPeriod()/bps;
-            result.emplace_back(t, derivative);
+        for (Size legNo = 0; legNo < 2; ++legNo) {
+            Real npvSign = legNo == 0 ? 1.0 : -1.0;
+            auto& discountBucket = result.sensitivities[&**discountHandles[legNo]];
+            for (const auto& d : flows[legNo]) {
+                Real derivative = npvSign*d.amount/bps;
+                if (legNo == basisLegNo)
+                    derivative -= quote*annuitySign*d.ntau/bps;
+                discountBucket.emplace_back(d.payDate, derivative);
+            }
+            // notional exchanges at start and maturity
+            discountBucket.emplace_back(initialNotionalExchangeDate_, -npvSign/bps);
+            discountBucket.emplace_back(finalNotionalExchangeDate_, npvSign/bps);
+            // sensitivities to the coupons' forecast curves
+            for (const auto& d : flows[legNo]) {
+                if (d.sensitivities.empty())
+                    continue;
+                auto& bucket = result.sensitivities[
+                    static_cast<const TermStructure*>(d.forecastCurve)];
+                for (const auto& [date, w] : d.sensitivities)
+                    bucket.emplace_back(date, npvSign*d.discount*w/bps);
+            }
         }
-        // notional exchanges at start and maturity
-        result.emplace_back(curve.timeFromReference(initialNotionalExchangeDate_),
-                            -npvSign/bps);
-        result.emplace_back(curve.timeFromReference(finalNotionalExchangeDate_),
-                            npvSign/bps);
+        result.available = true;
         return result;
     }
 
@@ -471,16 +472,16 @@ namespace QuantLib {
         return swap_->fairFxQuoteSpread();
     }
 
-    std::vector<std::pair<Time, Real>>
-    MtMCrossCurrencyBasisSwapRateHelper::impliedQuoteSensitivities() const {
+    QuoteSensitivities
+    MtMCrossCurrencyBasisSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr || termStructureHandle_.empty() ||
             collateralHandle_.empty())
             return {};
 
-        // The bootstrapped curve discounts one leg, and both discount
-        // curves drive the FX forwards used for the conversion factor
-        // and for the resettable-leg notionals; the forecast curves of
-        // both indices are exogenous.  Following the engine, the quote
+        // Both discount curves drive the leg NPVs as well as the FX
+        // forwards used for the conversion factor and for the
+        // resettable-leg notionals; the coupon forwards add the
+        // indices' forecast curves.  Following the engine, the quote
         // is Q = -NPV/B with
         //
         //   NPV = -fx*N_base + N_quote,   B = payer_k*fxconv_k*A_k
@@ -488,9 +489,11 @@ namespace QuantLib {
         // where N and A are the in-currency leg NPVs and annuities, k
         // is the leg the basis is quoted on, and fx converts the base
         // currency into the quote currency at unit spot.
+        QuoteSensitivities result;
         const Handle<YieldTermStructure>& baseDisc = baseCcyLegDiscountHandle();
         const Handle<YieldTermStructure>& quoteDisc = quoteCcyLegDiscountHandle();
-        bool bootstrappedIsBase = !isFxBaseCurrencyCollateralCurrency_;
+        const auto* baseKey = static_cast<const TermStructure*>(&**baseDisc);
+        const auto* quoteKey = static_cast<const TermStructure*>(&**quoteDisc);
         const YieldTermStructure& curve = **termStructureHandle_;
         Date refDate = curve.referenceDate();
         Date today = Settings::instance().evaluationDate();
@@ -500,11 +503,12 @@ namespace QuantLib {
             resettingLegNo == 0 ? baseDisc : quoteDisc;
         const Handle<YieldTermStructure>& constCurve =
             resettingLegNo == 0 ? quoteDisc : baseDisc;
+        const auto* resetKey = static_cast<const TermStructure*>(&**resetCurve);
+        const auto* constKey = static_cast<const TermStructure*>(&**constCurve);
         const Currency& resetCcy =
             resettingLegNo == 0 ? baseCcyIdx_->currency() : quoteCcyIdx_->currency();
         const Currency& constCcy =
             resettingLegNo == 0 ? quoteCcyIdx_->currency() : baseCcyIdx_->currency();
-        bool bootstrappedIsResettable = (resettingLegNo == 0) == bootstrappedIsBase;
 
         // FX settlement date, as resolved by the swap and its engine
         Calendar fxCalendar = (fxResetFixingDays_ != 0 && fxResetFixingCalendar_.empty())
@@ -512,12 +516,15 @@ namespace QuantLib {
         Date fxSettle = fxCalendar.empty() ? refDate :
             FxResetConvention(fxResetFixingDays_, fxCalendar).valueDate(today);
 
+        // one sensitivity entry, tagged with the curve it refers to
+        using TaggedEntry = std::tuple<const TermStructure*, Date, Real>;
+
         // conversion of base-currency into quote-currency amounts at
         // unit spot: fx = P_quote(settle)/P_base(settle)
         Real fx = quoteDisc->discount(fxSettle)/baseDisc->discount(fxSettle);
-        std::pair<Date, Real> dFx = {
-            fxSettle, bootstrappedIsBase ? -fx/baseDisc->discount(fxSettle)
-                                         : fx/quoteDisc->discount(fxSettle)};
+        const TaggedEntry dFx[2] = {
+            {quoteKey, fxSettle, fx/quoteDisc->discount(fxSettle)},
+            {baseKey, fxSettle, -fx/baseDisc->discount(fxSettle)}};
 
         // mirror of DiscountingFxResetPricer::fxRate at unit spot
         auto historicalReset = [&](const Date& fixingDate) -> Real {
@@ -544,27 +551,47 @@ namespace QuantLib {
                    /resetCurve->discount(reset.valueDate()));
             return {rate, true};
         };
-        // d(scale * fxRate)/dP entries w.r.t. the bootstrapped curve
+        // d(scale * fxRate)/dP entries w.r.t. both discount curves
         auto addResetSensitivities = [&](const FxReset& reset, const Reset& r, Real scale,
-                                         std::vector<std::pair<Date, Real>>& out) {
+                                         std::vector<TaggedEntry>& out) {
             if (!r.forecast)
                 return;
-            if (bootstrappedIsResettable) {
-                out.emplace_back(fxSettle, scale*r.rate/resetCurve->discount(fxSettle));
-                out.emplace_back(reset.valueDate(),
-                                 -scale*r.rate/resetCurve->discount(reset.valueDate()));
-            } else {
-                out.emplace_back(fxSettle, -scale*r.rate/constCurve->discount(fxSettle));
-                out.emplace_back(reset.valueDate(),
-                                 scale*r.rate/constCurve->discount(reset.valueDate()));
-            }
+            out.emplace_back(resetKey, fxSettle,
+                             scale*r.rate/resetCurve->discount(fxSettle));
+            out.emplace_back(resetKey, reset.valueDate(),
+                             -scale*r.rate/resetCurve->discount(reset.valueDate()));
+            out.emplace_back(constKey, fxSettle,
+                             -scale*r.rate/constCurve->discount(fxSettle));
+            out.emplace_back(constKey, reset.valueDate(),
+                             scale*r.rate/constCurve->discount(reset.valueDate()));
         };
 
         struct FlowData {
             Date payDate;
             Real amount = 0.0, ntau = 0.0;
-            std::vector<std::pair<Date, Real>> dAmount, dNtau;
+            std::vector<TaggedEntry> dAmount, dNtau;
         };
+        // analysis of a coupon's own amount, falling back to pricing by
+        // amount() and flagging the forecast curve when the analytical
+        // formulas don't apply
+        auto analyzeFlowCoupon = [&](const ext::shared_ptr<CashFlow>& cf,
+                                     detail::CouponSensitivityAnalysis& a) -> bool {
+            a = detail::analyzeCoupon(cf, true);
+            if (!a.supported) {
+                a = detail::analyzeCoupon(cf, false);
+                if (!a.supported)
+                    return false;
+                if (ext::dynamic_pointer_cast<FloatingRateCoupon>(cf) != nullptr) {
+                    if (a.forecastCurve == nullptr)
+                        // the coupon depends on a curve we cannot identify
+                        return false;
+                    result.incomplete.insert(a.forecastCurve);
+                }
+                a.amountSensitivities.clear();
+            }
+            return true;
+        };
+
         Real legNPV[2] = {0.0, 0.0}, legAnnuity[2] = {0.0, 0.0};
         std::vector<FlowData> flows[2];
         for (Size legNo = 0; legNo < 2; ++legNo) {
@@ -580,9 +607,12 @@ namespace QuantLib {
                         return {};
                     // the amounts of the underlying coupon, rescaled to
                     // the FX-reset notional
+                    detail::CouponSensitivityAnalysis ua;
+                    if (!analyzeFlowCoupon(coupon->underlying(), ua))
+                        return {};
                     Real underlyingScale =
                         coupon->constantLegNotional()/coupon->underlying()->nominal();
-                    Real underlyingAmount = coupon->underlying()->amount();
+                    Real underlyingAmount = ua.amount;
                     d.amount = underlyingAmount*underlyingScale*r.rate;
                     d.ntau = coupon->constantLegNotional()*r.rate*coupon->accrualPeriod();
                     addResetSensitivities(coupon->fxReset(), r,
@@ -590,6 +620,12 @@ namespace QuantLib {
                     addResetSensitivities(coupon->fxReset(), r,
                                           coupon->constantLegNotional()*coupon->accrualPeriod(),
                                           d.dNtau);
+                    // the underlying amount itself moves with its
+                    // forecast curve
+                    for (const auto& [date, w] : ua.amountSensitivities)
+                        d.dAmount.emplace_back(
+                            static_cast<const TermStructure*>(ua.forecastCurve),
+                            date, underlyingScale*r.rate*w);
                 } else if (auto exchange =
                                ext::dynamic_pointer_cast<FxResetNotionalExchange>(cf)) {
                     if (exchange->previousReset()) {
@@ -608,9 +644,15 @@ namespace QuantLib {
                         addResetSensitivities(*exchange->currentReset(), r,
                                               -exchange->constantLegNotional(), d.dAmount);
                     }
-                } else if (auto coupon = ext::dynamic_pointer_cast<Coupon>(cf)) {
-                    d.amount = coupon->amount();
-                    d.ntau = coupon->nominal()*coupon->accrualPeriod();
+                } else if (ext::dynamic_pointer_cast<Coupon>(cf) != nullptr) {
+                    detail::CouponSensitivityAnalysis a;
+                    if (!analyzeFlowCoupon(cf, a))
+                        return {};
+                    d.amount = a.amount;
+                    d.ntau = a.ntau;
+                    for (const auto& [date, w] : a.amountSensitivities)
+                        d.dAmount.emplace_back(
+                            static_cast<const TermStructure*>(a.forecastCurve), date, w);
                 } else {
                     d.amount = cf->amount();
                 }
@@ -630,37 +672,37 @@ namespace QuantLib {
         Real quote = impliedQuote();
 
         // dQ = -dNPV/B - Q*dB/B
-        std::vector<std::pair<Time, Real>> result;
-        auto emit = [&](const Date& d, Real v) {
-            result.emplace_back(curve.timeFromReference(d), v);
+        auto emit = [&](const TermStructure* key, const Date& d, Real v) {
+            result.sensitivities[key].emplace_back(d, v);
         };
 
         for (Size legNo = 0; legNo < 2; ++legNo) {
             const Handle<YieldTermStructure>& legCurve = legNo == 0 ? baseDisc : quoteDisc;
-            bool legOnBootstrappedCurve = (legNo == 0) == bootstrappedIsBase;
+            const auto* legKey = legNo == 0 ? baseKey : quoteKey;
             Real payer = legNo == 0 ? -1.0 : 1.0;
             Real fxconv = legNo == 0 ? fx : 1.0;
             for (const auto& d : flows[legNo]) {
                 DiscountFactor P = legCurve->discount(d.payDate);
                 // -dNPV/B through the amounts
-                for (const auto& [date, w] : d.dAmount)
-                    emit(date, -payer*fxconv*P*w/B);
-                if (legOnBootstrappedCurve)
-                    emit(d.payDate, -payer*fxconv*d.amount/B);
+                for (const auto& [key, date, w] : d.dAmount)
+                    emit(key, date, -payer*fxconv*P*w/B);
+                emit(legKey, d.payDate, -payer*fxconv*d.amount/B);
                 // -Q*dB/B through the basis-leg annuity
                 if (legNo == basisLegNo) {
-                    for (const auto& [date, w] : d.dNtau)
-                        emit(date, -quote*payerBasis*fxconvBasis*P*w/B);
-                    if (legOnBootstrappedCurve)
-                        emit(d.payDate, -quote*payerBasis*fxconvBasis*d.ntau/B);
+                    for (const auto& [key, date, w] : d.dNtau)
+                        emit(key, date, -quote*payerBasis*fxconvBasis*P*w/B);
+                    emit(legKey, d.payDate, -quote*payerBasis*fxconvBasis*d.ntau/B);
                 }
             }
         }
         // NPV and, for a base-currency basis leg, B also depend on the
         // conversion factor
-        emit(dFx.first, legNPV[0]*dFx.second/B);
+        for (const auto& [key, date, w] : dFx)
+            emit(key, date, legNPV[0]*w/B);
         if (basisLegNo == 0)
-            emit(dFx.first, quote*legAnnuity[0]*dFx.second/B);
+            for (const auto& [key, date, w] : dFx)
+                emit(key, date, quote*legAnnuity[0]*w/B);
+        result.available = true;
         return result;
     }
 

@@ -232,7 +232,7 @@ namespace QuantLib {
         return result;
     }
 
-    std::vector<std::pair<Time, Real>> OISRateHelper::impliedQuoteSensitivities() const {
+    QuoteSensitivities OISRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr || discountRelinkableHandle_.empty())
             return {};
         // a custom coupon pricer might apply adjustments that the
@@ -245,8 +245,7 @@ namespace QuantLib {
         Spread s = overnightSpread_.empty() ? 0.0 : overnightSpread_->value();
         return detail::fairRateSensitivities(
             swap_->fixedLeg(), swap_->overnightLeg(), s,
-            termStructure_, **discountRelinkableHandle_,
-            /*discountOnBootstrappedCurve=*/discountHandle_.empty());
+            **discountRelinkableHandle_);
     }
 
     void OISRateHelper::accept(AcyclicVisitor& v) {

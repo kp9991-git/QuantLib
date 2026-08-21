@@ -1989,6 +1989,9 @@
     <ClInclude Include="ql\termstructures\bootstrapjacobian.hpp">
       <Filter>termstructures</Filter>
     </ClInclude>
+    <ClInclude Include="ql\termstructures\curvejacobiangraph.hpp">
+      <Filter>termstructures</Filter>
+    </ClInclude>
     <ClInclude Include="ql\termstructures\defaulttermstructure.hpp">
       <Filter>termstructures</Filter>
     </ClInclude>

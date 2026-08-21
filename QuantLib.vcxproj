@@ -1705,6 +1705,7 @@
     <ClInclude Include="ql\termstructures\credit\piecewisedefaultcurve.hpp" />
     <ClInclude Include="ql\termstructures\credit\probabilitytraits.hpp" />
     <ClInclude Include="ql\termstructures\credit\survivalprobabilitystructure.hpp" />
+    <ClInclude Include="ql\termstructures\curvejacobiangraph.hpp" />
     <ClInclude Include="ql\termstructures\defaulttermstructure.hpp" />
     <ClInclude Include="ql\termstructures\globalbootstrap.hpp" />
     <ClInclude Include="ql\termstructures\globalbootstrapvars.hpp" />

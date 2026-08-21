@@ -23,17 +23,24 @@
 
 namespace QuantLib {
 
-MultiCurveBootstrap::MultiCurveBootstrap(Real accuracy) {
+MultiCurveBootstrap::MultiCurveBootstrap(Real accuracy, bool analyticJacobian)
+: accuracy_(accuracy), analyticJacobian_(analyticJacobian), defaultOptimizer_(true) {
     optimizer_ = ext::make_shared<LevenbergMarquardt>(accuracy, accuracy, accuracy);
     endCriteria_ = ext::make_shared<EndCriteria>(1000, 10, accuracy, accuracy, accuracy);
 }
 
 MultiCurveBootstrap::MultiCurveBootstrap(ext::shared_ptr<OptimizationMethod> optimizer,
-                                         ext::shared_ptr<EndCriteria> endCriteria)
-: optimizer_(std::move(optimizer)), endCriteria_(std::move(endCriteria)) {
+                                         ext::shared_ptr<EndCriteria> endCriteria,
+                                         bool analyticJacobian)
+: optimizer_(std::move(optimizer)), endCriteria_(std::move(endCriteria)),
+  analyticJacobian_(analyticJacobian) {
     constexpr auto accuracy = 1E-10;
-    if (optimizer_ == nullptr)
+    if (optimizer_ == nullptr) {
         optimizer_ = ext::make_shared<LevenbergMarquardt>(accuracy, accuracy, accuracy);
+        // remember this so that we may later switch to an optimizer
+        // using the analytical Jacobian, if available
+        defaultOptimizer_ = true;
+    }
     if (endCriteria_ == nullptr)
         endCriteria_ = ext::make_shared<EndCriteria>(1000, 10, accuracy, accuracy, accuracy);
 }
@@ -47,38 +54,45 @@ void MultiCurveBootstrap::addObserver(Observer* o) {
     observers_.push_back(o);
 }
 
-void MultiCurveBootstrap::runMultiCurveBootstrap() {
+std::set<const TermStructure*> MultiCurveBootstrap::observerTermStructures() const {
+    std::set<const TermStructure*> result;
+    for (auto* o : observers_)
+        if (const auto* ts = dynamic_cast<const TermStructure*>(o))
+            result.insert(ts);
+    return result;
+}
 
-    std::vector<Size> guessSizes;
-    std::vector<Real> globalGuess;
+void MultiCurveBootstrap::setCostFunctionArguments(const Array& x,
+                                                   const std::vector<Size>& guessSizes) const {
+    // call the contributors' cost functions' set part
 
-    for (auto const& c : contributors_) {
-        Array guess = c->setupCostFunction();
-        globalGuess.insert(globalGuess.end(), guess.begin(), guess.end());
-        guessSizes.push_back(guess.size());
+    std::size_t offset = 0;
+    for (std::size_t c = 0; c < contributors_.size(); ++c) {
+        Array tmp(guessSizes[c]);
+        std::copy(std::next(x.begin(), offset), std::next(x.begin(), offset + guessSizes[c]),
+                  tmp.begin());
+        offset += guessSizes[c];
+        contributors_[c]->setCostFunctionArgument(tmp);
     }
 
-    auto fn = [this, &guessSizes](const Array& x) {
-        // call the contributors' cost functions' set part
+    // update observers
+    for(auto *o: observers_)
+        o->update();
+}
 
-        std::size_t offset = 0;
-        for (std::size_t c = 0; c < contributors_.size(); ++c) {
-            Array tmp(guessSizes[c]);
-            std::copy(std::next(x.begin(), offset), std::next(x.begin(), offset + guessSizes[c]),
-                      tmp.begin());
-            offset += guessSizes[c];
-            contributors_[c]->setCostFunctionArgument(tmp);
-        }
-
-        // update observers
-        for(auto *o: observers_)
-            o->update();
+// stacked cost function using the analytical Jacobian when available
+class MultiCurveBootstrap::StackedCostFunction : public CostFunction {
+  public:
+    StackedCostFunction(const MultiCurveBootstrap* b, std::vector<Size> guessSizes)
+    : b_(b), guessSizes_(std::move(guessSizes)) {}
+    Array values(const Array& x) const override {
+        b_->setCostFunctionArguments(x, guessSizes_);
 
         // collect the contributors' result
 
         std::vector<Array> results;
-        results.reserve(contributors_.size());
-        for (auto& contributor : contributors_) {
+        results.reserve(b_->contributors_.size());
+        for (auto& contributor : b_->contributors_) {
             results.push_back(contributor->evaluateCostFunction());
         }
 
@@ -90,19 +104,111 @@ void MultiCurveBootstrap::runMultiCurveBootstrap() {
 
         Array result(resultSize);
 
-        offset = 0;
+        std::size_t offset = 0;
         for (auto const& r : results) {
             std::copy(r.begin(), r.end(), std::next(result.begin(), offset));
             offset += r.size();
         }
 
         return result;
-    };
+    }
+    void jacobian(Matrix& jac, const Array& x) const override {
+        if (!(b_->analyticJacobian_ && b_->analyticCostJacobian(jac, x, guessSizes_)))
+            CostFunction::jacobian(jac, x);
+    }
+  private:
+    const MultiCurveBootstrap* b_;
+    std::vector<Size> guessSizes_;
+};
 
-    SimpleCostFunction<decltype(fn)> costFunction(fn);
+bool MultiCurveBootstrap::analyticCostJacobian(Matrix& jac,
+                                               const Array& x,
+                                               const std::vector<Size>& guessSizes) const {
+    Size n = contributors_.size();
+    setCostFunctionArguments(x, guessSizes);
+
+    // gather each contributor's curve view, residual weights and
+    // transform derivatives, and check consistency
+    std::vector<detail::CurveJacobianNode> nodes(n);
+    std::vector<Array> weights(n), dT(n);
+    std::vector<Size> resOffset(n + 1, 0), varOffset(n + 1, 0);
+    for (Size i = 0; i < n; ++i) {
+        nodes[i] = contributors_[i]->jacobianNode();
+        if (nodes[i].curve == nullptr)
+            return false;
+        weights[i] = contributors_[i]->residualWeights();
+        if (weights[i].empty() || weights[i].size() != nodes[i].aliveHelpers().size())
+            return false;
+        Array xi(guessSizes[i]);
+        std::copy(x.begin() + varOffset[i], x.begin() + varOffset[i] + guessSizes[i],
+                  xi.begin());
+        dT[i] = contributors_[i]->transformDerivatives(xi);
+        if (dT[i].size() != guessSizes[i] || nodes[i].numNodes() != guessSizes[i])
+            return false;
+        resOffset[i + 1] = resOffset[i] + weights[i].size();
+        varOffset[i + 1] = varOffset[i] + guessSizes[i];
+    }
+    if (jac.rows() != resOffset[n] || jac.columns() != varOffset[n])
+        return false;
+
+    // the member curves are the system variables; anything else that
+    // the helpers reference is treated as constant, except the known
+    // dependent curves of the group (e.g. spreaded curves over a
+    // member), which force the strict analyticity check to fail
+    std::set<const TermStructure*> memberIds;
+    for (const auto& node : nodes)
+        memberIds.insert(node.id);
+    std::set<const TermStructure*> dependents = observerTermStructures();
+
+    // the residuals are w_i * (quote_i - impliedQuote_i); their
+    // derivatives with respect to contributor j's transformed variables
+    // chain through that contributor's curve nodes
+    for (Size i = 0; i < n; ++i) {
+        for (Size j = 0; j < n; ++j) {
+            std::vector<bool> analytic;
+            Matrix Jq = detail::curveCrossJacobian(nodes[i], nodes[j], &analytic,
+                                                   &memberIds, &dependents,
+                                                   /*unknownCurvesAreFixed=*/true);
+            for (auto flag : analytic)  // NOLINT(readability-use-anyofallof)
+                if (!flag)
+                    return false;
+            for (Size r = 0; r < Jq.rows(); ++r)
+                for (Size c = 0; c < Jq.columns(); ++c)
+                    jac[resOffset[i] + r][varOffset[j] + c] =
+                        -weights[i][r] * Jq[r][c] * dT[j][c];
+        }
+    }
+    return true;
+}
+
+void MultiCurveBootstrap::runMultiCurveBootstrap() {
+
+    std::vector<Size> guessSizes;
+    std::vector<Real> globalGuess;
+
+    for (auto const& c : contributors_) {
+        Array guess = c->setupCostFunction();
+        globalGuess.insert(globalGuess.end(), guess.begin(), guess.end());
+        guessSizes.push_back(guess.size());
+    }
+
+    StackedCostFunction costFunction(this, guessSizes);
+    Array guess(globalGuess.begin(), globalGuess.end());
+
+    ext::shared_ptr<OptimizationMethod> optimizer = optimizer_;
+    if (analyticJacobian_ && !guess.empty()) {
+        Matrix probe(costFunction.values(guess).size(), guess.size(), 0.0);
+        QL_REQUIRE(analyticCostJacobian(probe, guess, guessSizes),
+                   "the analytical Jacobian was requested, but it is not "
+                   "available for this multi-curve bootstrap");
+        if (defaultOptimizer_)
+            optimizer = ext::make_shared<LevenbergMarquardt>(
+                accuracy_, accuracy_, accuracy_, /*useCostFunctionsJacobian=*/true);
+    }
+
     NoConstraint noConstraint;
-    Problem problem(costFunction, noConstraint, Array(globalGuess.begin(), globalGuess.end()));
-    EndCriteria::Type endType = optimizer_->minimize(problem, *endCriteria_);
+    Problem problem(costFunction, noConstraint, guess);
+    EndCriteria::Type endType = optimizer->minimize(problem, *endCriteria_);
 
     QL_REQUIRE(
         EndCriteria::succeeded(endType),

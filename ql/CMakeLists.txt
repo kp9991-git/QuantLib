@@ -2117,6 +2117,7 @@ set(QL_HEADERS
     termstructures/credit/piecewisedefaultcurve.hpp
     termstructures/credit/probabilitytraits.hpp
     termstructures/credit/survivalprobabilitystructure.hpp
+    termstructures/curvejacobiangraph.hpp
     termstructures/defaulttermstructure.hpp
     termstructures/globalbootstrap.hpp
     termstructures/globalbootstrapvars.hpp

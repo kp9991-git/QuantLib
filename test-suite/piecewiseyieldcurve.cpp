@@ -41,6 +41,7 @@
 #include <ql/pricingengines/swap/discountingswapengine.hpp>
 #include <ql/quotes/futuresconvadjustmentquote.hpp>
 #include <ql/quotes/simplequote.hpp>
+#include <ql/termstructures/curvejacobiangraph.hpp>
 #include <ql/termstructures/globalbootstrap.hpp>
 #include <ql/termstructures/globalbootstrapvars.hpp>
 #include <ql/termstructures/localbootstrap.hpp>
@@ -2629,6 +2630,347 @@ BOOST_AUTO_TEST_CASE(testGlobalBootstrapWithJacobianOptimizer) {
         vars.settlement, vars.instruments, Actual360(), BackwardFlat(),
         GlobalBootstrap<GBFwdCurve>(Null<Real>(), nullptr, nullptr, {}, nullptr, true));
     BOOST_CHECK_THROW(curveThrow->data(), Error);
+}
+
+BOOST_AUTO_TEST_CASE(testCrossCurveJacobian) {
+
+    BOOST_TEST_MESSAGE("Testing cross-curve Jacobians...");
+
+    // discount curve: ESTR OIS
+    std::vector<ext::shared_ptr<SimpleQuote>> oisQuotes;
+    std::vector<ext::shared_ptr<RateHelper>> oisHelpers;
+    auto estr = ext::make_shared<Estr>();
+    for (auto& [months, r] : std::vector<std::pair<Integer, Rate>>{
+             {3, 0.0195}, {12, 0.0210}, {24, 0.0225}, {60, 0.0250},
+             {120, 0.0260}}) {
+        auto q = ext::make_shared<SimpleQuote>(r);
+        oisQuotes.push_back(q);
+        oisHelpers.push_back(ext::make_shared<OISRateHelper>(
+            2, months * Months, Handle<Quote>(q), estr));
+    }
+    auto oisCurve = ext::make_shared<PiecewiseYieldCurve<Discount, LogLinear>>(
+        0, TARGET(), oisHelpers, Actual360());
+
+    // projection curve: 6M deposit and swaps, discounted exogenously on OIS
+    auto euribor6m = ext::make_shared<Euribor6M>();
+    std::vector<ext::shared_ptr<SimpleQuote>> swapQuotes;
+    std::vector<ext::shared_ptr<RateHelper>> swapHelpers;
+    auto depo = ext::make_shared<SimpleQuote>(0.0230);
+    swapQuotes.push_back(depo);
+    swapHelpers.push_back(ext::make_shared<DepositRateHelper>(
+        Handle<Quote>(depo), euribor6m));
+    for (auto& [years, r] : std::vector<std::pair<Integer, Rate>>{
+             {1, 0.0235}, {2, 0.0248}, {5, 0.0270}, {10, 0.0280}}) {
+        auto q = ext::make_shared<SimpleQuote>(r);
+        swapQuotes.push_back(q);
+        swapHelpers.push_back(ext::make_shared<SwapRateHelper>(
+            Handle<Quote>(q), years * Years, TARGET(), Annual, Unadjusted,
+            Thirty360(Thirty360::BondBasis), euribor6m, Handle<Quote>(),
+            0 * Days, Handle<YieldTermStructure>(oisCurve)));
+    }
+    auto projCurve = ext::make_shared<PiecewiseYieldCurve<Discount, LogLinear>>(
+        0, TARGET(), swapHelpers, Actual360());
+
+    CurveJacobianGraph graph;
+    graph.add(oisCurve);
+    graph.add(projCurve);
+
+    // the cross block of the projection helpers vs the discount nodes
+    // must be analytical and non-trivial
+    std::vector<bool> analytic;
+    Matrix cross = graph.crossJacobian(*projCurve, *oisCurve, &analytic);
+    bool nonZero = false;
+    for (Size i = 0; i < cross.rows(); ++i) {
+        if (!analytic[i])
+            BOOST_ERROR("cross-Jacobian row " << i << " was expected to be "
+                        "analytical but was not");
+        for (Size j = 0; j < cross.columns(); ++j)
+            nonZero = nonZero || cross[i][j] != 0.0;
+    }
+    if (!nonZero)
+        BOOST_ERROR("cross-Jacobian of the projection helpers with respect "
+                    "to the discount nodes is identically zero");
+
+    // bumping any quote and re-bootstrapping both curves must move the
+    // nodes as predicted by the composed Jacobians
+    Real h = 1.0e-6, tolerance = 1.0e-5;
+    struct NamedCurve {
+        std::string name;
+        ext::shared_ptr<PiecewiseYieldCurve<Discount, LogLinear>> curve;
+        std::vector<ext::shared_ptr<SimpleQuote>>* quotes;
+    };
+    std::vector<NamedCurve> curves = {
+        {"discount", oisCurve, &oisQuotes},
+        {"projection", projCurve, &swapQuotes}};
+    for (auto& y : curves) {
+        std::vector<Matrix> S;
+        for (auto& x : curves)
+            S.push_back(graph.nodeQuoteJacobian(*x.curve, *y.curve));
+        for (Size k = 0; k < y.quotes->size(); ++k) {
+            auto& quote = (*y.quotes)[k];
+            Real q0 = quote->value();
+            quote->setValue(q0 + h);
+            std::vector<std::vector<Real>> up;
+            for (auto& x : curves) up.push_back(x.curve->data());
+            quote->setValue(q0 - h);
+            std::vector<std::vector<Real>> dn;
+            for (auto& x : curves) dn.push_back(x.curve->data());
+            quote->setValue(q0);
+            for (auto& x : curves) x.curve->data();
+
+            for (Size c = 0; c < curves.size(); ++c) {
+                for (Size j = 0; j + 1 < up[c].size(); ++j) {
+                    Real fd = (up[c][j + 1] - dn[c][j + 1]) / (2.0 * h);
+                    if (std::fabs(fd - S[c][j][k]) > tolerance)
+                        BOOST_ERROR("node " << j << " of the " << curves[c].name
+                                    << " curve responds to quote " << k
+                                    << " of the " << y.name << " curve with "
+                                    << fd << ", but " << S[c][j][k]
+                                    << " was predicted");
+                }
+            }
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(testCrossCurveJacobianThroughWrapper) {
+
+    BOOST_TEST_MESSAGE("Testing cross-curve Jacobians through a wrapping "
+                       "term structure...");
+
+    // discount curve: ESTR OIS
+    std::vector<ext::shared_ptr<SimpleQuote>> oisQuotes;
+    std::vector<ext::shared_ptr<RateHelper>> oisHelpers;
+    auto estr = ext::make_shared<Estr>();
+    for (auto& [months, r] : std::vector<std::pair<Integer, Rate>>{
+             {3, 0.0195}, {12, 0.0210}, {24, 0.0225}, {60, 0.0250},
+             {120, 0.0260}}) {
+        auto q = ext::make_shared<SimpleQuote>(r);
+        oisQuotes.push_back(q);
+        oisHelpers.push_back(ext::make_shared<OISRateHelper>(
+            2, months * Months, Handle<Quote>(q), estr));
+    }
+    auto oisCurve = ext::make_shared<PiecewiseYieldCurve<Discount, LogLinear>>(
+        0, TARGET(), oisHelpers, Actual360());
+
+    // projection curve discounted on an unregistered spread over the
+    // OIS curve: the graph cannot treat the wrapper as constant, so
+    // the cross rows must fall back to numerical differentiation ---
+    // which prices through the wrapper and captures the dependency
+    auto wrapper = ext::make_shared<ZeroSpreadedTermStructure>(
+        Handle<YieldTermStructure>(oisCurve), makeQuoteHandle(0.0010));
+
+    auto euribor6m = ext::make_shared<Euribor6M>();
+    std::vector<ext::shared_ptr<SimpleQuote>> swapQuotes;
+    std::vector<ext::shared_ptr<RateHelper>> swapHelpers;
+    for (auto& [years, r] : std::vector<std::pair<Integer, Rate>>{
+             {1, 0.0235}, {2, 0.0248}, {5, 0.0270}, {10, 0.0280}}) {
+        auto q = ext::make_shared<SimpleQuote>(r);
+        swapQuotes.push_back(q);
+        swapHelpers.push_back(ext::make_shared<SwapRateHelper>(
+            Handle<Quote>(q), years * Years, TARGET(), Annual, Unadjusted,
+            Thirty360(Thirty360::BondBasis), euribor6m, Handle<Quote>(),
+            0 * Days, Handle<YieldTermStructure>(wrapper)));
+    }
+    auto projCurve = ext::make_shared<PiecewiseYieldCurve<Discount, LogLinear>>(
+        0, TARGET(), swapHelpers, Actual360());
+
+    CurveJacobianGraph graph;
+    graph.add(oisCurve);
+    graph.add(projCurve);
+
+    std::vector<bool> analytic;
+    graph.crossJacobian(*projCurve, *oisCurve, &analytic);
+    for (Size i = 0; i < analytic.size(); ++i) {
+        if (analytic[i])
+            BOOST_ERROR("cross-Jacobian row " << i << " through the wrapper "
+                        "was computed analytically; it should have fallen "
+                        "back to numerical differentiation");
+    }
+
+    // the composed sensitivities must capture the dependency through
+    // the wrapper
+    Matrix S = graph.nodeQuoteJacobian(*projCurve, *oisCurve);
+    Real h = 1.0e-6, tolerance = 1.0e-5;
+    for (Size k = 0; k < oisQuotes.size(); ++k) {
+        Real q0 = oisQuotes[k]->value();
+        oisQuotes[k]->setValue(q0 + h);
+        std::vector<Real> up = projCurve->data();
+        oisQuotes[k]->setValue(q0 - h);
+        std::vector<Real> dn = projCurve->data();
+        oisQuotes[k]->setValue(q0);
+        projCurve->data();
+        for (Size j = 0; j + 1 < up.size(); ++j) {
+            Real fd = (up[j + 1] - dn[j + 1]) / (2.0 * h);
+            if (std::fabs(fd - S[j][k]) > tolerance)
+                BOOST_ERROR("node " << j << " of the projection curve "
+                            "responds to discount quote " << k << " with "
+                            << fd << ", but " << S[j][k] << " was predicted");
+        }
+    }
+}
+
+using CoDependentCurveType = PiecewiseYieldCurve<Discount, LogLinear, GlobalBootstrap>;
+
+struct CoDependentPair {
+    // the handles must outlive the curves
+    RelinkableHandle<YieldTermStructure> int3m, int6m;
+    std::vector<ext::shared_ptr<SimpleQuote>> quotes3m, quotes6m;
+    ext::shared_ptr<CoDependentCurveType> curve3m, curve6m;
+    ext::shared_ptr<MultiCurve> multiCurve;
+};
+
+// 3M curve: FRAs, then 3s6s basis swaps; 6M curve: 3s6s basis swaps,
+// then 6M swaps.  The two curves depend on each other and are
+// bootstrapped jointly.
+ext::shared_ptr<CoDependentPair>
+buildCoDependentPair(const Handle<YieldTermStructure>& discountCurve,
+                     bool analyticJacobian) {
+    Date today = Settings::instance().evaluationDate();
+    auto p = ext::make_shared<CoDependentPair>();
+    auto euribor3m = ext::make_shared<Euribor3M>(p->int3m);
+    auto euribor6m = ext::make_shared<Euribor6M>(p->int6m);
+
+    std::vector<ext::shared_ptr<RateHelper>> helpers3m, helpers6m;
+    for (Natural i : {1, 4, 7, 10, 13, 16, 19}) {
+        auto q = ext::make_shared<SimpleQuote>(0.024 + 0.0001 * i);
+        p->quotes3m.push_back(q);
+        helpers3m.push_back(ext::make_shared<FraRateHelper>(
+            Handle<Quote>(q), i, i + 3, euribor3m->fixingDays(),
+            euribor3m->fixingCalendar(), euribor3m->businessDayConvention(),
+            euribor3m->endOfMonth(), euribor3m->dayCounter(),
+            Pillar::LastRelevantDate));
+    }
+    for (Integer y : {2, 3, 4}) {
+        auto q = ext::make_shared<SimpleQuote>(0.0015 + 0.0001 * y);
+        p->quotes3m.push_back(q);
+        helpers3m.push_back(ext::make_shared<IborIborBasisSwapRateHelper>(
+            Handle<Quote>(q), y * Years, euribor3m->fixingDays(),
+            euribor3m->fixingCalendar(), euribor3m->businessDayConvention(),
+            euribor3m->endOfMonth(), euribor3m, euribor6m, discountCurve, true));
+    }
+    for (Integer m : {6, 12, 18}) {
+        auto q = ext::make_shared<SimpleQuote>(0.0012 + 0.0001 * m / 6);
+        p->quotes6m.push_back(q);
+        helpers6m.push_back(ext::make_shared<IborIborBasisSwapRateHelper>(
+            Handle<Quote>(q), m * Months, euribor3m->fixingDays(),
+            euribor3m->fixingCalendar(), euribor3m->businessDayConvention(),
+            euribor3m->endOfMonth(), euribor3m, euribor6m, discountCurve, false));
+    }
+    for (Integer y : {5, 7, 10}) {
+        auto q = ext::make_shared<SimpleQuote>(0.026 + 0.0002 * y);
+        p->quotes6m.push_back(q);
+        helpers6m.push_back(ext::make_shared<SwapRateHelper>(
+            Handle<Quote>(q), y * Years, euribor6m->fixingCalendar(), Annual,
+            Following, Thirty360(Thirty360::BondBasis), euribor6m,
+            Handle<Quote>(), 0 * Days, discountCurve));
+    }
+
+    (void)sizeof(CoDependentCurveType);
+    constexpr Real accuracy = 1e-11;
+    p->curve3m = ext::make_shared<CoDependentCurveType>(
+        today, helpers3m, Actual360(), LogLinear(),
+        GlobalBootstrap<CoDependentCurveType>(accuracy));
+    p->curve6m = ext::make_shared<CoDependentCurveType>(
+        today, helpers6m, Actual360(), LogLinear(),
+        GlobalBootstrap<CoDependentCurveType>(accuracy));
+
+    p->multiCurve = ext::make_shared<MultiCurve>(accuracy, analyticJacobian);
+    p->multiCurve->addBootstrappedCurve(
+        p->int3m, ext::shared_ptr<YieldTermStructure>(p->curve3m));
+    p->multiCurve->addBootstrappedCurve(
+        p->int6m, ext::shared_ptr<YieldTermStructure>(p->curve6m));
+    return p;
+}
+
+BOOST_AUTO_TEST_CASE(testCoDependentCurveJacobian) {
+
+    BOOST_TEST_MESSAGE("Testing inverse Jacobian of co-dependent curves...");
+
+    Date today = Settings::instance().evaluationDate();
+
+    Handle<YieldTermStructure> discountCurve(
+        ext::make_shared<FlatForward>(today, 0.02, Actual360()));
+
+    auto pair = buildCoDependentPair(discountCurve, false);
+    auto& quotes3m = pair->quotes3m;
+    auto& quotes6m = pair->quotes6m;
+    auto& curve3m = pair->curve3m;
+    auto& curve6m = pair->curve6m;
+    using CurveType = CoDependentCurveType;
+
+    // inverseJacobian() of a group member spans the quotes of the whole
+    // group, own quotes first, and accounts for the feedback between
+    // the curves; check both curves against bump and joint re-bootstrap
+    struct Member {
+        std::string name;
+        ext::shared_ptr<CurveType> curve;
+        std::vector<std::vector<ext::shared_ptr<SimpleQuote>>*> quotes;
+    };
+    std::vector<Member> members = {
+        {"3M", curve3m, {&quotes3m, &quotes6m}},
+        {"6M", curve6m, {&quotes6m, &quotes3m}}};
+
+    Real h = 1.0e-6, tolerance = 1.0e-5;
+    for (auto& m : members) {
+        Matrix S = m.curve->inverseJacobian();
+        Size nodes = m.curve->data().size() - 1;
+        Size quotes = m.quotes[0]->size() + m.quotes[1]->size();
+        BOOST_REQUIRE(S.rows() == nodes);
+        BOOST_REQUIRE(S.columns() == quotes);
+
+        Size k = 0;
+        for (auto* quoteSet : m.quotes) {
+            for (auto& quote : *quoteSet) {
+                Real q0 = quote->value();
+                quote->setValue(q0 + h);
+                std::vector<Real> up = m.curve->data();
+                quote->setValue(q0 - h);
+                std::vector<Real> dn = m.curve->data();
+                quote->setValue(q0);
+                m.curve->data();
+                for (Size j = 0; j + 1 < up.size(); ++j) {
+                    Real fd = (up[j + 1] - dn[j + 1]) / (2.0 * h);
+                    if (std::fabs(fd - S[j][k]) > tolerance)
+                        BOOST_ERROR("node " << j << " of the " << m.name
+                                    << " curve responds to group quote " << k
+                                    << " with " << fd << ", but " << S[j][k]
+                                    << " was predicted");
+                }
+                ++k;
+            }
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(testMultiCurveWithJacobianOptimizer) {
+
+    BOOST_TEST_MESSAGE("Testing multi-curve bootstrap using the analytical "
+                       "Jacobian against finite differences...");
+
+    Date today = Settings::instance().evaluationDate();
+
+    Handle<YieldTermStructure> discountCurve(
+        ext::make_shared<FlatForward>(today, 0.02, Actual360()));
+
+    // opting into the analytical Jacobian must converge to the same
+    // nodes as the default finite-difference optimization
+    auto pairDefault = buildCoDependentPair(discountCurve, false);
+    auto pairAnalytic = buildCoDependentPair(discountCurve, true);
+
+    for (Size m = 0; m < 2; ++m) {
+        const auto& dataDefault =
+            (m == 0 ? pairDefault->curve3m : pairDefault->curve6m)->data();
+        const auto& dataAnalytic =
+            (m == 0 ? pairAnalytic->curve3m : pairAnalytic->curve6m)->data();
+        for (Size j = 0; j < dataDefault.size(); ++j) {
+            if (std::fabs(dataDefault[j] - dataAnalytic[j]) > 1e-8)
+                BOOST_ERROR("node " << j << " differs between the analytical "
+                            "Jacobian and finite differences: "
+                            << std::setprecision(12)
+                            << dataAnalytic[j] << " vs " << dataDefault[j]);
+        }
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

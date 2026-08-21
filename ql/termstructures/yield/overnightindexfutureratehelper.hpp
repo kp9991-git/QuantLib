@@ -48,7 +48,7 @@ namespace QuantLib {
         //! \name RateHelper interface
         //@{
         Real impliedQuote() const override;
-        std::vector<std::pair<Time, Real>> impliedQuoteSensitivities() const override;
+        QuoteSensitivities impliedQuoteSensitivitiesByCurve() const override;
         void setTermStructure(YieldTermStructure*) override;
         //@}
         //! \name Visitability

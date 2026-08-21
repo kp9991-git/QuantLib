@@ -19,6 +19,7 @@
 
 #include <ql/cashflows/couponsensitivities.hpp>
 #include <ql/cashflows/fixedratecoupon.hpp>
+#include <ql/cashflows/floatingratecoupon.hpp>
 #include <ql/cashflows/iborcoupon.hpp>
 #include <ql/cashflows/overnightindexedcoupon.hpp>
 #include <ql/indexes/iborindex.hpp>
@@ -28,6 +29,21 @@
 namespace QuantLib {
 
     namespace detail {
+
+        namespace {
+
+            const YieldTermStructure* couponForecastCurve(const ext::shared_ptr<CashFlow>& cf) {
+                auto floating = ext::dynamic_pointer_cast<FloatingRateCoupon>(cf);
+                if (floating == nullptr)
+                    return nullptr;
+                auto index = ext::dynamic_pointer_cast<IborIndex>(floating->index());
+                if (index == nullptr)
+                    return nullptr;
+                const Handle<YieldTermStructure>& h = index->forwardingTermStructure();
+                return h.empty() ? nullptr : &**h;
+            }
+
+        }
 
         CouponSensitivityAnalysis analyzeCoupon(const ext::shared_ptr<CashFlow>& cf,
                                                 bool withSensitivities) {
@@ -39,6 +55,7 @@ namespace QuantLib {
                     a.supported = true;
                     a.ntau = cpn->nominal()*cpn->accrualPeriod();
                     a.amount = cpn->amount();
+                    a.forecastCurve = couponForecastCurve(cf);
                 }
                 return a;
             }
@@ -61,6 +78,7 @@ namespace QuantLib {
                     // f = (P(v)/P(e)-1)/tau on the index's forecast curve
                     const Handle<YieldTermStructure>& curve =
                         ibor->iborIndex()->forwardingTermStructure();
+                    a.forecastCurve = &**curve;
                     const Date& v = ibor->fixingValueDate();
                     const Date& e = ibor->fixingEndDate();
                     Time tau = ibor->spanningTime();
@@ -114,6 +132,7 @@ namespace QuantLib {
                     ++i0;
                 if (i0 == n)  // fully fixed
                     return a;
+                a.forecastCurve = &**curve;
 
                 Real gearing = overnight->gearing();
                 Time tau = dc.yearFraction(interestDates.front(), interestDates.back());
@@ -161,13 +180,43 @@ namespace QuantLib {
             return a;
         }
 
-        std::vector<std::pair<Time, Real>>
+        bool analyzeFloatingLeg(const Leg& leg,
+                                const Date& settlement,
+                                const YieldTermStructure& discountCurve,
+                                std::vector<FloatingFlowData>& data,
+                                QuoteSensitivities& result,
+                                std::optional<bool> includeSettlementDateFlows) {
+            for (const auto& cf : leg) {
+                if (cf->hasOccurred(settlement, includeSettlementDateFlows))
+                    continue;
+                auto a = analyzeCoupon(cf, true);
+                if (!a.supported) {
+                    a = analyzeCoupon(cf, false);
+                    if (!a.supported)
+                        return false;
+                    if (ext::dynamic_pointer_cast<FloatingRateCoupon>(cf) != nullptr) {
+                        if (a.forecastCurve == nullptr)
+                            // the coupon depends on a curve we
+                            // cannot identify
+                            return false;
+                        result.incomplete.insert(a.forecastCurve);
+                    }
+                    a.amountSensitivities.clear();
+                }
+                data.push_back({cf->date(), a.ntau, a.amount,
+                                discountCurve.discount(cf->date()),
+                                a.forecastCurve,
+                                std::move(a.amountSensitivities)});
+            }
+            return true;
+        }
+
+        QuoteSensitivities
         fairRateSensitivities(const Leg& fixedLeg,
                               const Leg& floatingLeg,
                               Spread helperSpread,
-                              const YieldTermStructure* bootstrappedCurve,
-                              const YieldTermStructure& discountCurve,
-                              bool discountOnBootstrappedCurve) {
+                              const YieldTermStructure& discountCurve) {
+            QuoteSensitivities result;
             Date settlement = discountCurve.referenceDate();
 
             // fair rate = F/A, with F the floating-leg NPV including the
@@ -186,80 +235,48 @@ namespace QuantLib {
             if (annuity == 0.0)
                 return {};
 
-            struct FloatingData {
-                Date payDate;
-                Real ntau, amount;
-                DiscountFactor discount;
-                std::vector<std::pair<Date, Real>> sensitivities;
-            };
-            std::vector<FloatingData> floatingData;
+            std::vector<FloatingFlowData> floatingData;
+            if (!analyzeFloatingLeg(floatingLeg, settlement, discountCurve,
+                                    floatingData, result))
+                return {};
             Real floatingNPV = 0.0;
-            for (const auto& cf : floatingLeg) {
-                if (cf->hasOccurred(settlement))
-                    continue;
-                auto a = analyzeCoupon(cf, true);
-                if (!a.supported)
-                    return {};
-                FloatingData d = {cf->date(), a.ntau, a.amount,
-                                  discountCurve.discount(cf->date()),
-                                  std::move(a.amountSensitivities)};
+            for (const auto& d : floatingData)
                 floatingNPV += (d.amount + helperSpread*d.ntau)*d.discount;
-                floatingData.push_back(std::move(d));
-            }
             Real fairRate = floatingNPV/annuity;
 
-            std::vector<std::pair<Time, Real>> result;
-            if (discountOnBootstrappedCurve) {
-                // sensitivities to the discount factors at the payment dates
-                for (const auto& [payDate, ntau] : fixedData)
-                    result.emplace_back(bootstrappedCurve->timeFromReference(payDate),
-                                        -fairRate*ntau/annuity);
-                for (const auto& d : floatingData)
-                    result.emplace_back(bootstrappedCurve->timeFromReference(d.payDate),
-                                        (d.amount + helperSpread*d.ntau)/annuity);
-            }
-            // sensitivities to the forecast discount factors
+            // sensitivities to the discount factors at the payment dates
+            auto& discountBucket =
+                result.sensitivities[static_cast<const TermStructure*>(&discountCurve)];
+            for (const auto& [payDate, ntau] : fixedData)
+                discountBucket.emplace_back(payDate, -fairRate*ntau/annuity);
             for (const auto& d : floatingData)
+                discountBucket.emplace_back(d.payDate,
+                                            (d.amount + helperSpread*d.ntau)/annuity);
+            // sensitivities to the forecast discount factors
+            for (const auto& d : floatingData) {
+                if (d.sensitivities.empty())
+                    continue;
+                auto& bucket = result.sensitivities[
+                    static_cast<const TermStructure*>(d.forecastCurve)];
                 for (const auto& [date, w] : d.sensitivities)
-                    result.emplace_back(bootstrappedCurve->timeFromReference(date),
-                                        d.discount*w/annuity);
+                    bucket.emplace_back(date, d.discount*w/annuity);
+            }
+            result.available = true;
             return result;
         }
 
-        std::vector<std::pair<Time, Real>>
+        QuoteSensitivities
         fairBasisSensitivities(const Leg& baseLeg,
                                const Leg& otherLeg,
-                               const YieldTermStructure* bootstrappedCurve,
-                               const YieldTermStructure& discountCurve,
-                               bool discountOnBootstrappedCurve,
-                               bool baseLegForecastsOnBootstrappedCurve,
-                               bool otherLegForecastsOnBootstrappedCurve) {
+                               const YieldTermStructure& discountCurve) {
+            QuoteSensitivities result;
             Date settlement = discountCurve.referenceDate();
 
-            struct LegData {
-                Date payDate;
-                Real ntau, amount;
-                DiscountFactor discount;
-                std::vector<std::pair<Date, Real>> sensitivities;
-            };
-            auto analyzeLeg = [&](const Leg& leg, bool withSensitivities,
-                                  std::vector<LegData>& data) {
-                for (const auto& cf : leg) {
-                    if (cf->hasOccurred(settlement))
-                        continue;
-                    auto a = analyzeCoupon(cf, withSensitivities);
-                    if (!a.supported)
-                        return false;
-                    data.push_back({cf->date(), a.ntau, a.amount,
-                                    discountCurve.discount(cf->date()),
-                                    std::move(a.amountSensitivities)});
-                }
-                return true;
-            };
-
-            std::vector<LegData> baseData, otherData;
-            if (!analyzeLeg(baseLeg, baseLegForecastsOnBootstrappedCurve, baseData) ||
-                !analyzeLeg(otherLeg, otherLegForecastsOnBootstrappedCurve, otherData))
+            std::vector<FloatingFlowData> baseData, otherData;
+            if (!analyzeFloatingLeg(baseLeg, settlement, discountCurve,
+                                    baseData, result) ||
+                !analyzeFloatingLeg(otherLeg, settlement, discountCurve,
+                                    otherData, result))
                 return {};
 
             // fair basis = (O - B)/A, with B and O the leg NPVs and A the
@@ -275,27 +292,32 @@ namespace QuantLib {
                 return {};
             Real fairBasis = (otherNPV - baseNPV)/annuity;
 
-            std::vector<std::pair<Time, Real>> result;
-            if (discountOnBootstrappedCurve) {
-                // sensitivities to the discount factors at the payment dates
-                for (const auto& d : baseData)
-                    result.emplace_back(bootstrappedCurve->timeFromReference(d.payDate),
-                                        (-d.amount - fairBasis*d.ntau)/annuity);
-                for (const auto& d : otherData)
-                    result.emplace_back(bootstrappedCurve->timeFromReference(d.payDate),
-                                        d.amount/annuity);
-            }
+            // sensitivities to the discount factors at the payment dates
+            auto& discountBucket =
+                result.sensitivities[static_cast<const TermStructure*>(&discountCurve)];
+            for (const auto& d : baseData)
+                discountBucket.emplace_back(d.payDate,
+                                            (-d.amount - fairBasis*d.ntau)/annuity);
+            for (const auto& d : otherData)
+                discountBucket.emplace_back(d.payDate, d.amount/annuity);
             // sensitivities to the forecast discount factors
-            if (baseLegForecastsOnBootstrappedCurve)
-                for (const auto& d : baseData)
-                    for (const auto& [date, w] : d.sensitivities)
-                        result.emplace_back(bootstrappedCurve->timeFromReference(date),
-                                            -d.discount*w/annuity);
-            if (otherLegForecastsOnBootstrappedCurve)
-                for (const auto& d : otherData)
-                    for (const auto& [date, w] : d.sensitivities)
-                        result.emplace_back(bootstrappedCurve->timeFromReference(date),
-                                            d.discount*w/annuity);
+            for (const auto& d : baseData) {
+                if (d.sensitivities.empty())
+                    continue;
+                auto& bucket = result.sensitivities[
+                    static_cast<const TermStructure*>(d.forecastCurve)];
+                for (const auto& [date, w] : d.sensitivities)
+                    bucket.emplace_back(date, -d.discount*w/annuity);
+            }
+            for (const auto& d : otherData) {
+                if (d.sensitivities.empty())
+                    continue;
+                auto& bucket = result.sensitivities[
+                    static_cast<const TermStructure*>(d.forecastCurve)];
+                for (const auto& [date, w] : d.sensitivities)
+                    bucket.emplace_back(date, d.discount*w/annuity);
+            }
+            result.available = true;
             return result;
         }
 

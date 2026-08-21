@@ -26,8 +26,10 @@
 #define quantlib_coupon_sensitivities_hpp
 
 #include <ql/cashflow.hpp>
+#include <ql/termstructures/bootstraphelper.hpp>
 #include <ql/time/date.hpp>
 #include <ql/types.hpp>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -44,6 +46,9 @@ namespace QuantLib {
             Real ntau = 0.0;
             //! coupon amount, consistent with the pricing engines
             Real amount = 0.0;
+            //! the coupon's forecast curve, when the coupon has one
+            //! that could be identified
+            const YieldTermStructure* forecastCurve = nullptr;
             //! derivative of the amount with respect to the discount
             //! factors of the coupon's forecast curve at the given dates
             std::vector<std::pair<Date, Real>> amountSensitivities;
@@ -59,38 +64,58 @@ namespace QuantLib {
         CouponSensitivityAnalysis analyzeCoupon(const ext::shared_ptr<CashFlow>& cf,
                                                 bool withSensitivities);
 
+        //! analysis of a single floating coupon, discounted on a given curve
+        struct FloatingFlowData {
+            Date payDate;
+            Real ntau, amount;
+            DiscountFactor discount;
+            const YieldTermStructure* forecastCurve;
+            std::vector<std::pair<Date, Real>> sensitivities;
+        };
+
+        /*! Analyzes the coupons of a floating leg, trying the full
+            analytical formulas first and falling back to pricing by
+            amount() when they don't apply; in the latter case the
+            coupon's forecast curve is added to the incomplete set of
+            the given result.  Returns false when the leg can't be
+            analyzed at all.
+        */
+        bool analyzeFloatingLeg(const Leg& leg,
+                                const Date& settlement,
+                                const YieldTermStructure& discountCurve,
+                                std::vector<FloatingFlowData>& data,
+                                QuoteSensitivities& result,
+                                std::optional<bool> includeSettlementDateFlows = std::nullopt);
+
         /*! Sensitivities of the fair fixed rate of a fixed-vs-floating
             swap (plus a spread quoted on the floating leg) to the
-            discount factors of the curve being bootstrapped; the
-            floating-leg forwards are assumed to be forecast on that
-            curve, while the discount curve may or may not be the same
-            curve.  An empty vector means that some coupon is not
-            supported by the analytical formulas.
+            discount factors of every curve entering the pricing: the
+            given discount curve and the forecast curves of the
+            floating-leg coupons.  Floating coupons not supported by the
+            analytical formulas are priced by amount() and their
+            forecast curves are reported as incomplete; if that fails
+            too, the whole result is flagged as unavailable.
         */
-        std::vector<std::pair<Time, Real>>
+        QuoteSensitivities
         fairRateSensitivities(const Leg& fixedLeg,
                               const Leg& floatingLeg,
                               Spread helperSpread,
-                              const YieldTermStructure* bootstrappedCurve,
-                              const YieldTermStructure& discountCurve,
-                              bool discountOnBootstrappedCurve);
+                              const YieldTermStructure& discountCurve);
 
         /*! Sensitivities of the fair basis of a floating-vs-floating
             swap paying baseLeg + basis and receiving otherLeg, i.e., of
             \f$ b = (O - B)/A \f$ with O and B the leg NPVs and A the
-            base-leg annuity, to the discount factors of the curve being
-            bootstrapped.  The flags tell which parts of the pricing use
-            that curve.  An empty vector means that some coupon is not
-            supported by the analytical formulas.
+            base-leg annuity, to the discount factors of every curve
+            entering the pricing: the given discount curve and the
+            forecast curves of the coupons on both legs.  Coupons not
+            supported by the analytical formulas are priced by amount()
+            and their forecast curves are reported as incomplete; if
+            that fails too, the whole result is flagged as unavailable.
         */
-        std::vector<std::pair<Time, Real>>
+        QuoteSensitivities
         fairBasisSensitivities(const Leg& baseLeg,
                                const Leg& otherLeg,
-                               const YieldTermStructure* bootstrappedCurve,
-                               const YieldTermStructure& discountCurve,
-                               bool discountOnBootstrappedCurve,
-                               bool baseLegForecastsOnBootstrappedCurve,
-                               bool otherLegForecastsOnBootstrappedCurve);
+                               const YieldTermStructure& discountCurve);
 
     }
 

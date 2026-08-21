@@ -90,8 +90,8 @@ namespace QuantLib {
         return future_->NPV();
     }
 
-    std::vector<std::pair<Time, Real>>
-    OvernightIndexFutureRateHelper::impliedQuoteSensitivities() const {
+    QuoteSensitivities
+    OvernightIndexFutureRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr)
             return {};
 
@@ -103,7 +103,8 @@ namespace QuantLib {
         Date today = Settings::instance().evaluationDate();
         Time tauRef = dc.yearFraction(valueDate, maturityDate);
 
-        std::vector<std::pair<Time, Real>> result;
+        QuoteSensitivities result;
+        auto& own = result.sensitivities[termStructure_];
         switch (future_->averagingMethod()) {
           case RateAveraging::Compound: {
             // mirroring OvernightIndexFuture::compoundedRate(), whose
@@ -114,10 +115,11 @@ namespace QuantLib {
                 if (start < maturityDate && index->hasHistoricalFixing(start))
                     start = std::min(calendar.advance(start, 1, Days), maturityDate);
             }
-            Time tMaturity = termStructure_->timeFromReference(maturityDate);
-            if (start >= maturityDate)
+            if (start >= maturityDate) {
                 // the rate is fully determined by past fixings
-                return {{tMaturity, 0.0}};
+                own.emplace_back(maturityDate, 0.0);
+                break;
+            }
 
             // NPV = 100*(1 - adj - rate), rate = (prod-1)/tauRef,
             // prod = C_past * P(start)/P(maturity)
@@ -125,9 +127,8 @@ namespace QuantLib {
             Real prod = rate*tauRef + 1.0;
             DiscountFactor Ps = termStructure_->discount(start);
             DiscountFactor Pm = termStructure_->discount(maturityDate);
-            result.emplace_back(termStructure_->timeFromReference(start),
-                                -100.0*prod/(tauRef*Ps));
-            result.emplace_back(tMaturity, 100.0*prod/(tauRef*Pm));
+            own.emplace_back(start, -100.0*prod/(tauRef*Ps));
+            own.emplace_back(maturityDate, 100.0*prod/(tauRef*Pm));
             break;
           }
           case RateAveraging::Simple: {
@@ -145,21 +146,20 @@ namespace QuantLib {
                     DiscountFactor P1 = termStructure_->discount(fixingDate);
                     DiscountFactor P2 = termStructure_->discount(d2);
                     Real k = -100.0*w/(tauRef*tauFixing);
-                    result.emplace_back(termStructure_->timeFromReference(fixingDate),
-                                        k/P2);
-                    result.emplace_back(termStructure_->timeFromReference(d2),
-                                        -k*P1/(P2*P2));
+                    own.emplace_back(fixingDate, k/P2);
+                    own.emplace_back(d2, -k*P1/(P2*P2));
                 }
                 fixingDate = d1 = d2;
             }
-            if (result.empty())
+            if (own.empty())
                 // the rate is fully determined by past fixings
-                result.emplace_back(termStructure_->timeFromReference(maturityDate), 0.0);
+                own.emplace_back(maturityDate, 0.0);
             break;
           }
           default:
             return {};
         }
+        result.available = true;
         return result;
     }
 

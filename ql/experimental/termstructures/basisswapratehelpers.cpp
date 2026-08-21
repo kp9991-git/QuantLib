@@ -127,17 +127,14 @@ namespace QuantLib {
         return - (swap_->NPV() / swap_->legBPS(0)) * 1.0e-4;
     }
 
-    std::vector<std::pair<Time, Real>>
-    IborIborBasisSwapRateHelper::impliedQuoteSensitivities() const {
+    QuoteSensitivities
+    IborIborBasisSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr || discountHandle_.empty())
             return {};
         // the discount curve is always exogenous; the bootstrapped
         // curve forecasts one of the two legs
         return detail::fairBasisSensitivities(
-            swap_->leg(0), swap_->leg(1), termStructure_, **discountHandle_,
-            /*discountOnBootstrappedCurve=*/false,
-            /*baseLegForecastsOnBootstrappedCurve=*/bootstrapBaseCurve_,
-            /*otherLegForecastsOnBootstrappedCurve=*/!bootstrapBaseCurve_);
+            swap_->leg(0), swap_->leg(1), **discountHandle_);
     }
 
     void IborIborBasisSwapRateHelper::accept(AcyclicVisitor& v) {
@@ -277,15 +274,12 @@ namespace QuantLib {
         return - (swap_->NPV() / swap_->legBPS(0)) * 1.0e-4;
     }
 
-    std::vector<std::pair<Time, Real>>
-    OvernightIborBasisSwapRateHelper::impliedQuoteSensitivities() const {
+    QuoteSensitivities
+    OvernightIborBasisSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr || discountRelinkableHandle_.empty())
             return {};
         return detail::fairBasisSensitivities(
-            swap_->leg(0), swap_->leg(1), termStructure_, **discountRelinkableHandle_,
-            /*discountOnBootstrappedCurve=*/discountHandle_.empty(),
-            /*baseLegForecastsOnBootstrappedCurve=*/bootstrapBaseCurve_,
-            /*otherLegForecastsOnBootstrappedCurve=*/!bootstrapBaseCurve_);
+            swap_->leg(0), swap_->leg(1), **discountRelinkableHandle_);
     }
 
     void OvernightIborBasisSwapRateHelper::accept(AcyclicVisitor& v) {
@@ -419,15 +413,12 @@ namespace QuantLib {
         return -(swap_->NPV() / swap_->legBPS(0)) * 1.0e-4;
     }
 
-    std::vector<std::pair<Time, Real>>
-    OvernightOvernightBasisSwapRateHelper::impliedQuoteSensitivities() const {
+    QuoteSensitivities
+    OvernightOvernightBasisSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr || discountRelinkableHandle_.empty())
             return {};
         return detail::fairBasisSensitivities(
-            swap_->leg(0), swap_->leg(1), termStructure_, **discountRelinkableHandle_,
-            /*discountOnBootstrappedCurve=*/discountHandle_.empty(),
-            /*baseLegForecastsOnBootstrappedCurve=*/bootstrapBaseCurve_,
-            /*otherLegForecastsOnBootstrappedCurve=*/!bootstrapBaseCurve_);
+            swap_->leg(0), swap_->leg(1), **discountRelinkableHandle_);
     }
 
     void OvernightOvernightBasisSwapRateHelper::accept(AcyclicVisitor& v) {
