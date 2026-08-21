@@ -19,6 +19,7 @@
 */
 
 #include <ql/termstructures/yield/overnightindexfutureratehelper.hpp>
+#include <ql/experimental/termstructures/quotesensitivitycalculator.hpp>
 #include <ql/indexes/ibor/sofr.hpp>
 #include <ql/utilities/null_deleter.hpp>
 namespace QuantLib {
@@ -124,10 +125,11 @@ namespace QuantLib {
             // prod = C_past * P(start)/P(maturity)
             Real rate = 1.0 - impliedQuote()/100.0 - future_->convexityAdjustment();
             Real prod = rate*tauRef + 1.0;
-            DiscountFactor Ps = termStructure_->discount(start);
-            DiscountFactor Pm = termStructure_->discount(maturityDate);
-            own.emplace_back(start, -100.0*prod/(tauRef*Ps));
-            own.emplace_back(maturityDate, 100.0*prod/(tauRef*Pm));
+            Real pastCompounding = prod*termStructure_->discount(maturityDate)
+                                   /termStructure_->discount(start);
+            detail::addSimpleForwardSensitivities(result, *termStructure_,
+                                                  start, maturityDate, tauRef,
+                                                  -100.0*pastCompounding);
             break;
           }
           case RateAveraging::Simple: {
@@ -139,13 +141,12 @@ namespace QuantLib {
                 bool forecast = fixingDate > today ||
                     (fixingDate == today && !index->hasHistoricalFixing(fixingDate));
                 if (forecast) {
+                    // the fixing enters the average with weight w/tauRef
                     Time w = dc.yearFraction(d1, std::min(d2, maturityDate));
                     Time tauFixing = dc.yearFraction(fixingDate, d2);
-                    DiscountFactor P1 = termStructure_->discount(fixingDate);
-                    DiscountFactor P2 = termStructure_->discount(d2);
-                    Real k = -100.0*w/(tauRef*tauFixing);
-                    own.emplace_back(fixingDate, k/P2);
-                    own.emplace_back(d2, -k*P1/(P2*P2));
+                    detail::addSimpleForwardSensitivities(result, *termStructure_,
+                                                          fixingDate, d2, tauFixing,
+                                                          -100.0*w/tauRef);
                 }
                 fixingDate = d1 = d2;
             }

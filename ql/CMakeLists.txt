@@ -10,7 +10,6 @@ set(QL_SOURCES
     cashflows/conundrumpricer.cpp
     cashflows/coupon.cpp
     cashflows/couponpricer.cpp
-    cashflows/couponsensitivities.cpp
     cashflows/cpicoupon.cpp
     cashflows/cpicouponpricer.cpp
     cashflows/digitalcmscoupon.cpp
@@ -186,6 +185,7 @@ set(QL_SOURCES
     experimental/swaptions/irregularswaption.cpp
     experimental/termstructures/basisswapratehelpers.cpp
     experimental/termstructures/crosscurrencyratehelpers.cpp
+    experimental/termstructures/quotesensitivitycalculator.cpp
     experimental/variancegamma/analyticvariancegammaengine.cpp
     experimental/variancegamma/fftengine.cpp
     experimental/variancegamma/fftvanillaengine.cpp
@@ -998,7 +998,6 @@ set(QL_HEADERS
     cashflows/conundrumpricer.hpp
     cashflows/coupon.hpp
     cashflows/couponpricer.hpp
-    cashflows/couponsensitivities.hpp
     cashflows/cpicoupon.hpp
     cashflows/cpicouponpricer.hpp
     cashflows/digitalcmscoupon.hpp
@@ -1242,6 +1241,7 @@ set(QL_HEADERS
     experimental/termstructures/crosscurrencyratehelpers.hpp
     experimental/termstructures/curvechainrulecalculator.hpp
     experimental/termstructures/curvejacobiangraph.hpp
+    experimental/termstructures/quotesensitivitycalculator.hpp
     experimental/variancegamma/analyticvariancegammaengine.hpp
     experimental/variancegamma/fftengine.hpp
     experimental/variancegamma/fftvanillaengine.hpp

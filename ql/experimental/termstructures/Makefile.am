@@ -7,11 +7,13 @@ this_include_HEADERS = \
     basisswapratehelpers.hpp \
     crosscurrencyratehelpers.hpp \
     curvechainrulecalculator.hpp \
-    curvejacobiangraph.hpp
+    curvejacobiangraph.hpp \
+    quotesensitivitycalculator.hpp
 
 cpp_files = \
     basisswapratehelpers.cpp \
-    crosscurrencyratehelpers.cpp
+    crosscurrencyratehelpers.cpp \
+    quotesensitivitycalculator.cpp
 
 
 if UNITY_BUILD
