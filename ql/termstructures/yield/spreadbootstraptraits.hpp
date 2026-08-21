@@ -19,6 +19,26 @@ namespace QuantLib::detail {
         struct curve {
             typedef InterpolatedSpreadDiscountCurve<Interpolator> type;
         };
+
+        template <class C>
+        static Real sensitivityScale(Time t, const C* c) {
+            // The curve data are multiplicative discount spreads, while
+            // helper sensitivities are with respect to the final discount.
+            return c->baseCurve()->discount(t);
+        }
+
+        template <class C, class Input, class Output>
+        static bool transformBaseCurveSensitivities(
+                const C* c, const Input& input, Output& output) {
+            output.reserve(output.size() + input.size());
+            for (const auto& [date, sensitivity] : input) {
+                DiscountFactor baseDiscount =
+                    c->baseCurve()->discount(date, true);
+                DiscountFactor spread = c->discount(date, true) / baseDiscount;
+                output.emplace_back(date, sensitivity * spread);
+            }
+            return true;
+        }
     };
 
 }

@@ -1,7 +1,7 @@
 /* -*- mode: c++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 
 /*
- Copyright (C) 2026 Quantlib contributors
+ Copyright (C) 2026 Kyrylo Protsenko
 
  This file is part of QuantLib, a free-software/open-source library
  for financial quantitative analysts and developers - http://quantlib.org/
@@ -24,6 +24,7 @@
 #ifndef quantlib_bootstrap_jacobian_hpp
 #define quantlib_bootstrap_jacobian_hpp
 
+#include <ql/experimental/termstructures/curvechainrulecalculator.hpp>
 #include <ql/math/interpolation.hpp>
 #include <ql/math/matrix.hpp>
 #include <ql/termstructures/bootstraphelper.hpp>
@@ -56,11 +57,31 @@ namespace QuantLib {
         constexpr bool hasFirstDataPointFlag<
             T, std::void_t<decltype(T::firstDataPointTracksSecond)>> = true;
 
+        template <class C, class = void>
+        constexpr bool hasBaseCurveHandle = false;
+
+        template <class C>
+        constexpr bool hasBaseCurveHandle<
+            C, std::void_t<decltype(std::declval<const C&>().baseCurve())>> = true;
+
+        template <class T, class Curve, class = void>
+        constexpr bool hasBaseCurveSensitivityTransform = false;
+
+        template <class T, class Curve>
+        constexpr bool hasBaseCurveSensitivityTransform<
+            T, Curve,
+            std::void_t<decltype(T::transformBaseCurveSensitivities(
+                std::declval<const Curve*>(),
+                std::declval<const DatedCurveSensitivities&>(),
+                std::declval<DatedCurveSensitivities&>()))>> = true;
+
         //! type-erased bootstrapped curve used in cross-curve Jacobians
         /*! A null curve means the interface is unavailable. */
         struct CurveJacobianNode {
             ext::shared_ptr<YieldTermStructure> curve;
-            const TermStructure* id = nullptr;
+            CurveId id = nullptr;
+            //! term structures used internally to turn nodes into curve values
+            CurveDependencies valueDependencies;
             std::function<void()> ensure;
             std::function<Size()> numNodes;
             std::function<std::vector<ext::shared_ptr<BootstrapHelper<YieldTermStructure>>>()>
@@ -247,6 +268,23 @@ namespace QuantLib {
                 CurveJacobianNode n;
                 n.curve = curve;
                 n.id = static_cast<const TermStructure*>(curve.get());
+                if constexpr (hasBaseCurveHandle<Curve>) {
+                    if (!curve->baseCurve().empty()) {
+                        const auto* baseId = static_cast<const TermStructure*>(
+                            curve->baseCurve().currentLink().get());
+                        if constexpr (hasBaseCurveSensitivityTransform<Traits, Curve>) {
+                            n.valueDependencies.add(
+                                baseId,
+                                [curve](const DatedCurveSensitivities& input,
+                                        DatedCurveSensitivities& output) {
+                                    return Traits::transformBaseCurveSensitivities(
+                                        curve.get(), input, output);
+                                });
+                        } else {
+                            n.valueDependencies.add(baseId);
+                        }
+                    }
+                }
                 n.ensure = [curve] { curve->calculate(); };
                 n.numNodes = [curve]() -> Size {
                     curve->calculate();
@@ -296,15 +334,13 @@ namespace QuantLib {
             Jacobian. Unsupported rows are differentiated numerically.
 
             Analytical rows require every referenced curve to be accounted
-            for by fixedCurves or the unknownCurvesAreFixed policy. Known
-            dependent wrappers remain numerical.
+            for by the supplied context. Known dependent wrappers without an
+            analytical dependency transform remain numerical.
         */
         inline Matrix curveCrossJacobian(const CurveJacobianNode& a,
                                          const CurveJacobianNode& b,
-                                         std::vector<bool>* analyticRows = nullptr,
-                                         const std::set<const TermStructure*>* fixedCurves = nullptr,
-                                         const std::set<const TermStructure*>* dependentCurves = nullptr,
-                                         bool unknownCurvesAreFixed = false) {
+                                         const CurveCrossJacobianContext& context,
+                                         std::vector<bool>* analyticRows = nullptr) {
             if (a.id == b.id)
                 return a.ownJacobian(analyticRows);
 
@@ -316,15 +352,6 @@ namespace QuantLib {
             Matrix J(rows, cols, 0.0);
             std::vector<bool> analytic(rows, false);
 
-            auto accounted = [&](const TermStructure* curve) {
-                if (curve == b.id)
-                    return true;
-                if (fixedCurves != nullptr && fixedCurves->count(curve) != 0)
-                    return true;
-                return unknownCurvesAreFixed &&
-                       (dependentCurves == nullptr || dependentCurves->count(curve) == 0);
-            };
-
             std::vector<Real> row;
             for (Size i = 0; i < rows; ++i) {
                 auto s = helpers[i]->impliedQuoteSensitivitiesByCurve();
@@ -332,13 +359,38 @@ namespace QuantLib {
                     continue;
                 bool allAccounted = true;
                 for (const auto& [curve, entries] : s.sensitivities)
-                    allAccounted = allAccounted && accounted(curve);
+                    allAccounted = allAccounted && context.accountsFor(curve, b.id);
                 for (const auto* curve : s.incomplete)
-                    allAccounted = allAccounted && accounted(curve);
+                    allAccounted = allAccounted && context.accountsFor(curve, b.id);
                 if (!allAccounted)
                     continue;
                 auto bucket = s.sensitivities.find(b.id);
-                if (bucket == s.sensitivities.end()) {
+                bool indirectDependence = false;
+                bool transformed = true;
+                std::vector<std::pair<Date, Real>> targetSensitivities;
+                if (bucket != s.sensitivities.end())
+                    targetSensitivities = bucket->second;
+                for (const auto& [source, entries] : s.sensitivities) {
+                    if (source == b.id ||
+                        !context.dependsOn(source, b.id))
+                        continue;
+                    indirectDependence = true;
+                    transformed = transformed &&
+                                  context.propagate(
+                                      source, b.id, entries, targetSensitivities);
+                }
+                for (const auto* source : s.incomplete)
+                    if (source != b.id &&
+                        context.dependsOn(source, b.id)) {
+                        indirectDependence = true;
+                        transformed = false;
+                    }
+                if (indirectDependence) {
+                    if (transformed && b.analyticRow(targetSensitivities, row)) {
+                        std::copy(row.begin(), row.end(), J.row_begin(i));
+                        analytic[i] = true;
+                    }
+                } else if (bucket == s.sensitivities.end()) {
                     // no direct dependence on this curve
                     analytic[i] = true;
                 } else if (b.analyticRow(bucket->second, row)) {
@@ -390,26 +442,22 @@ namespace QuantLib {
             both grouped in the given curve order. Optional offsets include a
             final total. A quote is analytical only if all its blocks are.
 
-            Group members are accounted for automatically. The remaining
-            arguments control curves outside the system.
+            Group members and their dependency edges are added to a copy of
+            the supplied context.
         */
         inline Matrix groupNodeQuoteJacobian(const std::vector<CurveJacobianNode>& curves,
                                              std::vector<Size>* rowOffsets = nullptr,
                                              std::vector<Size>* colOffsets = nullptr,
                                              std::vector<bool>* analyticRows = nullptr,
-                                             const std::set<const TermStructure*>* fixedCurves = nullptr,
-                                             const std::set<const TermStructure*>* dependentCurves = nullptr,
-                                             bool unknownCurvesAreFixed = false) {
+                                             const CurveCrossJacobianContext& baseContext = {}) {
             Size n = curves.size();
             std::vector<Size> nodeOffset(n + 1, 0), quoteOffset(n + 1, 0);
-            std::set<const TermStructure*> fixedIds;
-            if (fixedCurves != nullptr)
-                fixedIds = *fixedCurves;
+            CurveCrossJacobianContext context = baseContext;
             for (Size i = 0; i < n; ++i) {
                 curves[i].ensure();
                 nodeOffset[i + 1] = nodeOffset[i] + curves[i].numNodes();
                 quoteOffset[i + 1] = quoteOffset[i] + curves[i].aliveHelpers().size();
-                fixedIds.insert(curves[i].id);
+                context.addCurve(curves[i].id, curves[i].valueDependencies);
             }
             QL_REQUIRE(nodeOffset[n] == quoteOffset[n],
                        "cannot solve for the node/quote sensitivities: the "
@@ -422,9 +470,7 @@ namespace QuantLib {
                 for (Size j = 0; j < n; ++j) {
                     std::vector<bool> blockFlags;
                     Matrix block = curveCrossJacobian(curves[i], curves[j],
-                                                      &blockFlags, &fixedIds,
-                                                      dependentCurves,
-                                                      unknownCurvesAreFixed);
+                                                      context, &blockFlags);
                     for (Size r = 0; r < block.rows(); ++r) {
                         std::copy(block.row_begin(r), block.row_end(r),
                                   J.row_begin(quoteOffset[i] + r) + nodeOffset[j]);

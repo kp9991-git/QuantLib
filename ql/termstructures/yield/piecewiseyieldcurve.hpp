@@ -198,7 +198,7 @@ namespace QuantLib {
         // already.
         friend class Bootstrap<this_curve>;
         // access needed for cross-curve Jacobians
-        friend struct detail::BootstrapJacobianAccess<this_curve>;
+        template <class> friend struct detail::BootstrapJacobianAccess;
         Bootstrap<this_curve> bootstrap_;
     };
 
@@ -254,10 +254,12 @@ namespace QuantLib {
             if (group.members.size() > 1) {
                 // differentiate known dependent wrappers numerically
                 std::vector<Size> rowOffsets;
+                detail::CurveCrossJacobianContext context;
+                context.addNumericallyPropagatedCurves(group.dependents);
+                context.assumeUnlistedCurvesIndependent();
                 Matrix S = detail::groupNodeQuoteJacobian(
                     group.members, &rowOffsets, nullptr, analyticRows,
-                    nullptr, &group.dependents,
-                    /*unknownCurvesAreFixed=*/true);
+                    context);
                 // this curve occupies the first row block
                 Matrix result(rowOffsets[1], S.columns());
                 for (Size j = 0; j < result.rows(); ++j)

@@ -1240,6 +1240,7 @@ set(QL_HEADERS
     experimental/swaptions/irregularswaption.hpp
     experimental/termstructures/basisswapratehelpers.hpp
     experimental/termstructures/crosscurrencyratehelpers.hpp
+    experimental/termstructures/curvechainrulecalculator.hpp
     experimental/variancegamma/analyticvariancegammaengine.hpp
     experimental/variancegamma/fftengine.hpp
     experimental/variancegamma/fftvanillaengine.hpp

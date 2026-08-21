@@ -123,7 +123,8 @@ class AdditionalBootstrapVariables {
   for a concrete implementation of this interface.
 
   The analyticJacobian parameter controls whether the optimization uses the
-  analytical Jacobian of the cost function.
+  analytical Jacobian of the cost function. If an optimizer is supplied, it
+  must report that it consumes CostFunction::jacobian().
 
   WARNING: This class is known to work with Traits Discount, ZeroYield, Forward,
   i.e. the usual IR curves traits in QL. For new Traits you may want to implement
@@ -655,6 +656,9 @@ void GlobalBootstrap<Curve>::calculate() const {
             optimizer = ext::make_shared<LevenbergMarquardt>(
                 accuracy, accuracy, accuracy, /*useCostFunctionsJacobian=*/true);
         }
+        QL_REQUIRE(optimizer->usesCostFunctionJacobian(),
+                   "the analytical Jacobian was requested, but the supplied "
+                   "optimizer does not consume CostFunction::jacobian()");
     }
 
     Problem problem(costFunction, noConstraint, guess);

@@ -142,19 +142,19 @@ bool MultiCurveBootstrap::analyticCostJacobian(Matrix& jac,
     if (jac.rows() != resOffset[n] || jac.columns() != varOffset[n])
         return false;
 
-    // known dependent wrappers must not be treated as constants
-    std::set<const TermStructure*> memberIds;
+    // known dependent wrappers require numerical propagation
+    detail::CurveCrossJacobianContext context;
+    context.addNumericallyPropagatedCurves(observerTermStructures());
+    context.assumeUnlistedCurvesIndependent();
     for (const auto& node : nodes)
-        memberIds.insert(node.id);
-    std::set<const TermStructure*> dependents = observerTermStructures();
+        context.addCurve(node.id, node.valueDependencies);
 
     // differentiate w_i * (quote_i - impliedQuote_i) through curve nodes
     for (Size i = 0; i < n; ++i) {
         for (Size j = 0; j < n; ++j) {
             std::vector<bool> analytic;
-            Matrix Jq = detail::curveCrossJacobian(nodes[i], nodes[j], &analytic,
-                                                   &memberIds, &dependents,
-                                                   /*unknownCurvesAreFixed=*/true);
+            Matrix Jq = detail::curveCrossJacobian(nodes[i], nodes[j],
+                                                   context, &analytic);
             for (auto flag : analytic)  // NOLINT(readability-use-anyofallof)
                 if (!flag)
                     return false;
@@ -190,6 +190,9 @@ void MultiCurveBootstrap::runMultiCurveBootstrap() {
         if (defaultOptimizer_)
             optimizer = ext::make_shared<LevenbergMarquardt>(
                 accuracy_, accuracy_, accuracy_, /*useCostFunctionsJacobian=*/true);
+        QL_REQUIRE(optimizer->usesCostFunctionJacobian(),
+                   "the analytical Jacobian was requested, but the supplied "
+                   "optimizer does not consume CostFunction::jacobian()");
     }
 
     NoConstraint noConstraint;
