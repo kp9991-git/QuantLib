@@ -40,12 +40,12 @@ namespace QuantLib {
     namespace detail {
 
         //! sensitivity to one curve value
-        struct TaggedSensitivity {
+        struct CurvePointSensitivity {
             const TermStructure* curve;
             Date date;
             Real derivative;
         };
-        using TaggedSensitivities = std::vector<TaggedSensitivity>;
+        using CurvePointSensitivities = std::vector<CurvePointSensitivity>;
 
         //! Adds sensitivities of \f$ s(P(d_1)/P(d_2)-1)/\tau \f$
         void addSimpleForwardSensitivities(QuoteSensitivities& result,
@@ -62,14 +62,15 @@ namespace QuantLib {
             Real ntau = 0.0;
             //! coupon amount
             Real amount = 0.0;
-            //! forecast curve, if any
+            //! single forecast curve used by unsupported-coupon fallback
             const YieldTermStructure* forecastCurve = nullptr;
             //! amount derivatives with respect to forecast discount factors
-            std::vector<std::pair<Date, Real>> amountSensitivities;
+            CurvePointSensitivities amountSensitivities;
         };
 
-        /*! Analyzes fixed, vanilla Ibor, and compounded overnight coupons.
-            Unsupported cases return supported=false. */
+        /*! Analyzes fixed, Ibor (including weighted-index stubs), and
+            compounded overnight coupons. Unsupported cases return
+            supported=false. */
         CouponSensitivityAnalysis analyzeCoupon(const ext::shared_ptr<CashFlow>& cf,
                                                 bool withSensitivities);
 
@@ -86,7 +87,7 @@ namespace QuantLib {
             //! nominal times accrual period (zero for non-coupon flows)
             Real ntau = 0.0;
             //! amount and ntau derivatives
-            TaggedSensitivities amountSensitivities, ntauSensitivities;
+            CurvePointSensitivities amountSensitivities, ntauSensitivities;
         };
 
         //! discounted leg values and their curve sensitivities
@@ -94,7 +95,7 @@ namespace QuantLib {
             const YieldTermStructure* discountCurve = nullptr;
             Real npv = 0.0;
             Real annuity = 0.0;
-            TaggedSensitivities npvSensitivities, annuitySensitivities;
+            CurvePointSensitivities npvSensitivities, annuitySensitivities;
 
             //! discounts and adds the flow
             void addFlow(const FlowSensitivityData& flow);
@@ -131,7 +132,7 @@ namespace QuantLib {
         //! \f$ Q=N/D \f$ from weighted legs and optional extra derivatives
         struct QuotientSensitivitySpec {
             std::vector<LegTerm> numerator, denominator;
-            TaggedSensitivities numeratorExtra, denominatorExtra;
+            CurvePointSensitivities numeratorExtra, denominatorExtra;
         };
 
         //! Adds \f$ dQ=dN/D-Q\,dD/D \f$ or returns false when \f$ D=0 \f$

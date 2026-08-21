@@ -49,7 +49,7 @@ namespace QuantLib {
             }
 
             void addSensitivities(QuoteSensitivities& result,
-                                  const TaggedSensitivities& entries,
+                                  const CurvePointSensitivities& entries,
                                   Real scale) {
                 for (const auto& e : entries)
                     result.sensitivities[e.curve].emplace_back(e.date, scale*e.derivative);
@@ -91,6 +91,43 @@ namespace QuantLib {
                 return a;
             }
 
+            if (auto stub = ext::dynamic_pointer_cast<StubIborCoupon>(cf)) {
+                if (stub->isInArrears())
+                    return a;
+                a.supported = true;
+                a.ntau = stub->nominal()*stub->accrualPeriod();
+                Real gearing = stub->gearing();
+                a.amount = a.ntau*(gearing*stub->indexFixing() + stub->spread());
+                if (!stub->hasFixed()) {
+                    const Date& fixingDate = stub->fixingDate();
+                    Date today = Settings::instance().evaluationDate();
+                    const auto& components = stub->weightedIndex()->components();
+                    for (const auto& [index, weight] : components) {
+                        bool componentFixed = fixingDate < today ||
+                            (fixingDate == today &&
+                             (Settings::instance().enforcesTodaysHistoricFixings() ||
+                              index->hasHistoricalFixing(fixingDate)));
+                        if (componentFixed)
+                            continue;
+                        const Handle<YieldTermStructure>& curve =
+                            index->forwardingTermStructure();
+                        if (curve.empty())
+                            return {};
+                        Date v = index->valueDate(fixingDate);
+                        Date e = index->maturityDate(v);
+                        Time tau = index->dayCounter().yearFraction(v, e);
+                        DiscountFactor Pv = curve->discount(v);
+                        DiscountFactor Pe = curve->discount(e);
+                        Real k = gearing*a.ntau*weight/tau;
+                        a.amountSensitivities.push_back(
+                            {key(&**curve), v, k/Pe});
+                        a.amountSensitivities.push_back(
+                            {key(&**curve), e, -k*Pv/(Pe*Pe)});
+                    }
+                }
+                return a;
+            }
+
             if (auto ibor = ext::dynamic_pointer_cast<IborCoupon>(cf)) {
                 if (ibor->isInArrears())
                     return a;
@@ -109,8 +146,10 @@ namespace QuantLib {
                     DiscountFactor Pv = curve->discount(v);
                     DiscountFactor Pe = curve->discount(e);
                     Real k = gearing*a.ntau/tau;
-                    a.amountSensitivities.emplace_back(v, k/Pe);
-                    a.amountSensitivities.emplace_back(e, -k*Pv/(Pe*Pe));
+                    a.amountSensitivities.push_back(
+                        {key(a.forecastCurve), v, k/Pe});
+                    a.amountSensitivities.push_back(
+                        {key(a.forecastCurve), e, -k*Pv/(Pe*Pe)});
                 }
                 return a;
             }
@@ -167,10 +206,12 @@ namespace QuantLib {
                     Time tauIndex = dc.yearFraction(v1, v2);
                     DiscountFactor P1 = curve->discount(v1);
                     DiscountFactor P2 = curve->discount(v2);
-                    a.amountSensitivities.emplace_back(
-                        v1, amountScale*dt[i]/(tauIndex*P2*g));
-                    a.amountSensitivities.emplace_back(
-                        v2, -amountScale*dt[i]*P1/(tauIndex*P2*P2*g));
+                    a.amountSensitivities.push_back(
+                        {key(a.forecastCurve), v1,
+                         amountScale*dt[i]/(tauIndex*P2*g)});
+                    a.amountSensitivities.push_back(
+                        {key(a.forecastCurve), v2,
+                         -amountScale*dt[i]*P1/(tauIndex*P2*P2*g)});
                 };
                 // holiday boundary factors
                 Size start = (i0 == 0 && valueDates.front() < interestDates.front())
@@ -181,10 +222,10 @@ namespace QuantLib {
                         addGrowthFactor(i);
                     DiscountFactor Ps = curve->discount(valueDates[start]);
                     DiscountFactor Pe = curve->discount(valueDates[end]);
-                    a.amountSensitivities.emplace_back(valueDates[start],
-                                                       amountScale/Ps);
-                    a.amountSensitivities.emplace_back(valueDates[end],
-                                                       -amountScale/Pe);
+                    a.amountSensitivities.push_back(
+                        {key(a.forecastCurve), valueDates[start], amountScale/Ps});
+                    a.amountSensitivities.push_back(
+                        {key(a.forecastCurve), valueDates[end], -amountScale/Pe});
                     for (Size i = end; i < n; ++i)
                         addGrowthFactor(i);
                 } else {
@@ -266,9 +307,7 @@ namespace QuantLib {
                             return false;
                         d.amount = a.amount;
                         d.ntau = a.ntau;
-                        for (const auto& [date, w] : a.amountSensitivities)
-                            d.amountSensitivities.push_back(
-                                {key(a.forecastCurve), date, w});
+                        d.amountSensitivities = std::move(a.amountSensitivities);
                     } else {
                         d.amount = cf->amount();
                     }

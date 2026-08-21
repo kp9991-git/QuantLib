@@ -499,7 +499,7 @@ namespace QuantLib {
 
         // base-to-quote conversion at unit spot
         Real fx = quoteDisc->discount(fxSettle)/baseDisc->discount(fxSettle);
-        const detail::TaggedSensitivities dFx = {
+        const detail::CurvePointSensitivities dFx = {
             {quoteKey, fxSettle, fx/quoteDisc->discount(fxSettle)},
             {baseKey, fxSettle, -fx/baseDisc->discount(fxSettle)}};
 
@@ -530,7 +530,7 @@ namespace QuantLib {
         };
         // d(scale * fxRate)/dP for both discount curves
         auto addResetSensitivities = [&](const FxReset& reset, const Reset& r, Real scale,
-                                         detail::TaggedSensitivities& out) {
+                                         detail::CurvePointSensitivities& out) {
             if (!r.forecast)
                 return;
             out.push_back({resetKey, fxSettle,
@@ -565,10 +565,10 @@ namespace QuantLib {
                 addResetSensitivities(coupon->fxReset(), r,
                                       notionalAccrual, d.ntauSensitivities);
                 // underlying coupon forecast sensitivity
-                for (const auto& [date, w] : ua.amountSensitivities)
+                for (const auto& sensitivity : ua.amountSensitivities)
                     d.amountSensitivities.push_back(
-                        {static_cast<const TermStructure*>(ua.forecastCurve),
-                         date, underlyingScale*r.rate*w});
+                        {sensitivity.curve, sensitivity.date,
+                         underlyingScale*r.rate*sensitivity.derivative});
                 return detail::FlowHandling::Analyzed;
             }
             if (auto exchange = ext::dynamic_pointer_cast<FxResetNotionalExchange>(cf)) {

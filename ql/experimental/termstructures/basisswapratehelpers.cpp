@@ -180,16 +180,15 @@ namespace QuantLib {
         DateGeneration::Rule rule,
         RateAveraging::Type averagingMethod,
         bool telescopicValueDates,
-        StubIndexConfig iborStubIndexConfig,
-        bool basisOnIborLeg)
+        bool basisOnIborLeg,
+        StubIndexConfig iborStubIndexConfig)
     : RelativeDateRateHelper(basis), tenor_(tenor), settlementDays_(settlementDays),
       calendar_(std::move(calendar)), convention_(convention), endOfMonth_(endOfMonth),
       discountHandle_(std::move(discountHandle)), bootstrapBaseCurve_(bootstrapBaseCurve),
       paymentLag_(paymentLag), overnightPaymentFrequency_(overnightPaymentFrequency),
       useIndexedCoupons_(useIndexedCoupons), rule_(rule), averagingMethod_(averagingMethod),
-      telescopicValueDates_(telescopicValueDates),
-      iborStubIndexConfig_(std::move(iborStubIndexConfig)),
-      basisOnIborLeg_(basisOnIborLeg) {
+      telescopicValueDates_(telescopicValueDates), basisOnIborLeg_(basisOnIborLeg),
+      iborStubIndexConfig_(std::move(iborStubIndexConfig)) {
 
         QL_REQUIRE(baseIndex, "null base overnight index");
         QL_REQUIRE(otherIndex, "null other ibor index");
