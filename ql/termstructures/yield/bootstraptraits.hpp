@@ -138,6 +138,14 @@ namespace QuantLib {
         }
         // upper bound for convergence loop
         static Size maxIterations() { return 100; }
+
+        template <class C>
+        static Real sensitivityScale(Time, const C*) {
+            // curve data are discount factors
+            return 1.0;
+        }
+        // updateGuess leaves data[0] fixed
+        static constexpr bool firstDataPointTracksSecond = false;
     };
 
 
@@ -229,6 +237,13 @@ namespace QuantLib {
         }
         // upper bound for convergence loop
         static Size maxIterations() { return 100; }
+
+        template <class C>
+        static Real sensitivityScale(Time t, const C* c) {
+            // P(t) = exp(-z(t)*t) with interpolated z
+            return -t * c->discount(t, true);
+        }
+        static constexpr bool firstDataPointTracksSecond = true;
     };
 
 
@@ -425,6 +440,14 @@ namespace QuantLib {
         }
         // upper bound for convergence loop
         static Size maxIterations() { return 100; }
+
+        template <class C>
+        static Real sensitivityScale(Time t, const C* c) {
+            // P(t) = 1/(1+z(t)*t) with interpolated z
+            DiscountFactor d = c->discount(t, true);
+            return -t * d * d;
+        }
+        static constexpr bool firstDataPointTracksSecond = true;
     };
 
 

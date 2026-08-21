@@ -37,6 +37,14 @@ namespace QuantLib {
       public:
         virtual ~OptimizationMethod() = default;
 
+        /*! Whether this method consumes CostFunction::jacobian().
+
+            Optimizers that return false may still use derivatives obtained
+            through another interface, but they cannot be used when a caller
+            explicitly requires the cost-function Jacobian to be consumed.
+        */
+        virtual bool usesCostFunctionJacobian() const { return false; }
+
         //! minimize the optimization problem P
         virtual EndCriteria::Type minimize(Problem& P,
                                            const EndCriteria& endCriteria) = 0;

@@ -799,6 +799,29 @@ namespace QuantLib {
                 Real dx_ = x-this->xBegin_[j];
                 return 2.0*this->b_[j] + 6.0*this->c_[j]*dx_;
             }
+            std::vector<std::pair<Size, Real>> nodeWeights(Real x) const override {
+                // Only these unfiltered schemes are affine in the nodes
+                if (monotonic_ ||
+                    (da_ != CubicInterpolation::Spline &&
+                     da_ != CubicInterpolation::Parabolic))
+                    return {};
+
+                // Interpolate each unit vector to obtain its weight
+                // Zero boundary values isolate the affine coefficients
+                std::vector<std::pair<Size, Real>> weights;
+                weights.reserve(n_);
+                std::vector<Real> unit(n_, 0.0);
+                for (Size j=0; j<n_; ++j) {
+                    unit[j] = 1.0;
+                    CubicInterpolation basis(this->xBegin_, this->xEnd_,
+                                             unit.begin(), da_, false,
+                                             leftType_, 0.0,
+                                             rightType_, 0.0);
+                    weights.emplace_back(j, basis(x, true));
+                    unit[j] = 0.0;
+                }
+                return weights;
+            }
 
           private:
             Size n_;

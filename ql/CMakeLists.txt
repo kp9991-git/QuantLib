@@ -10,6 +10,7 @@ set(QL_SOURCES
     cashflows/conundrumpricer.cpp
     cashflows/coupon.cpp
     cashflows/couponpricer.cpp
+    cashflows/couponsensitivities.cpp
     cashflows/cpicoupon.cpp
     cashflows/cpicouponpricer.cpp
     cashflows/digitalcmscoupon.cpp
@@ -997,6 +998,7 @@ set(QL_HEADERS
     cashflows/conundrumpricer.hpp
     cashflows/coupon.hpp
     cashflows/couponpricer.hpp
+    cashflows/couponsensitivities.hpp
     cashflows/cpicoupon.hpp
     cashflows/cpicouponpricer.hpp
     cashflows/digitalcmscoupon.hpp
@@ -1238,6 +1240,7 @@ set(QL_HEADERS
     experimental/swaptions/irregularswaption.hpp
     experimental/termstructures/basisswapratehelpers.hpp
     experimental/termstructures/crosscurrencyratehelpers.hpp
+    experimental/termstructures/curvechainrulecalculator.hpp
     experimental/variancegamma/analyticvariancegammaengine.hpp
     experimental/variancegamma/fftengine.hpp
     experimental/variancegamma/fftvanillaengine.hpp
@@ -2104,6 +2107,7 @@ set(QL_HEADERS
     termstructure.hpp
     termstructures/bootstraperror.hpp
     termstructures/bootstraphelper.hpp
+    termstructures/bootstrapjacobian.hpp
     termstructures/credit/defaultdensitystructure.hpp
     termstructures/credit/defaultprobabilityhelpers.hpp
     termstructures/credit/flathazardrate.hpp
@@ -2114,6 +2118,7 @@ set(QL_HEADERS
     termstructures/credit/piecewisedefaultcurve.hpp
     termstructures/credit/probabilitytraits.hpp
     termstructures/credit/survivalprobabilitystructure.hpp
+    termstructures/curvejacobiangraph.hpp
     termstructures/defaulttermstructure.hpp
     termstructures/globalbootstrap.hpp
     termstructures/globalbootstrapvars.hpp

@@ -27,6 +27,8 @@
 #define quantlib_piecewise_yield_curve_hpp
 
 #include <ql/patterns/lazyobject.hpp>
+#include <ql/math/matrix.hpp>
+#include <ql/termstructures/bootstrapjacobian.hpp>
 #include <ql/termstructures/iterativebootstrap.hpp>
 #include <ql/termstructures/globalbootstrap.hpp>
 #include <ql/termstructures/multicurve.hpp>
@@ -141,6 +143,22 @@ namespace QuantLib {
         const std::vector<Real>& data() const;
         std::vector<std::pair<Date, Real> > nodes() const;
         //@}
+        //! \name Jacobian
+        //@{
+        /*! Jacobian of helper quotes with respect to free curve nodes.
+            Rows follow alive helpers and columns follow data()[1..]. For
+            multi-curve dependencies, other curve nodes are fixed.
+        */
+        Matrix jacobian(std::vector<bool>* analyticRows = nullptr) const;
+
+        /*! Jacobian of free curve nodes with respect to helper quotes.
+            For a stand-alone curve, this is inverse(jacobian()). For a
+            MultiCurve group, columns cover this curve's quotes first and
+            then other members in registration order. Group feedback is
+            included.
+        */
+        Matrix inverseJacobian(std::vector<bool>* analyticRows = nullptr) const;
+        //@}
         //! \name Observer interface
         //@{
         void update() override;
@@ -179,6 +197,8 @@ namespace QuantLib {
         // it would increase the complexity---which is high enough
         // already.
         friend class Bootstrap<this_curve>;
+        // access needed for cross-curve Jacobians
+        template <class> friend struct detail::BootstrapJacobianAccess;
         Bootstrap<this_curve> bootstrap_;
     };
 
@@ -214,6 +234,40 @@ namespace QuantLib {
     PiecewiseYieldCurve<C,I,B>::nodes() const {
         calculate();
         return base_curve::nodes();
+    }
+
+    template <class Traits, class Interpolator, template <class> class Bootstrap>
+    Matrix PiecewiseYieldCurve<Traits, Interpolator, Bootstrap>::jacobian(
+                                       std::vector<bool>* analyticRows) const {
+        calculate();
+        return detail::bootstrapJacobian<Traits>(
+            this, instruments_, this->times_, this->data_,
+            this->interpolation_, !this->jumpDates().empty(), analyticRows);
+    }
+
+    template <class Traits, class Interpolator, template <class> class Bootstrap>
+    Matrix PiecewiseYieldCurve<Traits, Interpolator, Bootstrap>::inverseJacobian(
+                                       std::vector<bool>* analyticRows) const {
+        calculate();
+        if constexpr (detail::hasJacobianGroup<bootstrap_type>) {
+            auto group = bootstrap_.jacobianGroup();
+            if (group.members.size() > 1) {
+                // differentiate known dependent wrappers numerically
+                std::vector<Size> rowOffsets;
+                detail::CurveCrossJacobianContext context;
+                context.addNumericallyPropagatedCurves(group.dependents);
+                context.assumeUnlistedCurvesIndependent();
+                Matrix S = detail::groupNodeQuoteJacobian(
+                    group.members, &rowOffsets, nullptr, analyticRows,
+                    context);
+                // this curve occupies the first row block
+                Matrix result(rowOffsets[1], S.columns());
+                for (Size j = 0; j < result.rows(); ++j)
+                    std::copy(S.row_begin(j), S.row_end(j), result.row_begin(j));
+                return result;
+            }
+        }
+        return detail::inverseBootstrapJacobian(jacobian(analyticRows));
     }
 
     template <class C, class I, template <class> class B>

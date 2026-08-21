@@ -14,6 +14,7 @@ this_include_HEADERS = \
     conundrumpricer.hpp \
     coupon.hpp \
     couponpricer.hpp \
+    couponsensitivities.hpp \
     cpicoupon.hpp \
     cpicouponpricer.hpp \
     digitalcmscoupon.hpp \
@@ -51,6 +52,7 @@ cpp_files = \
     conundrumpricer.cpp \
     coupon.cpp \
     couponpricer.cpp \
+    couponsensitivities.cpp \
     cpicoupon.cpp \
     cpicouponpricer.cpp \
     digitalcmscoupon.cpp \

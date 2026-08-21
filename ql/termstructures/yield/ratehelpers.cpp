@@ -23,6 +23,7 @@
  FOR A PARTICULAR PURPOSE.  See the license for more details.
 */
 
+#include <ql/cashflows/couponsensitivities.hpp>
 #include <ql/cashflows/iborcoupon.hpp>
 #include <ql/currency.hpp>
 #include <ql/indexes/swapindex.hpp>
@@ -165,6 +166,20 @@ namespace QuantLib {
         return 100.0 * (1.0 - futureRate);
     }
 
+    QuoteSensitivities FuturesRateHelper::impliedQuoteSensitivitiesByCurve() const {
+        if (termStructure_ == nullptr)
+            return {};
+        // Q = 100 * (1 - ((P1/P2-1)/yearFraction + convexityAdjustment))
+        DiscountFactor d1 = termStructure_->discount(earliestDate_);
+        DiscountFactor d2 = termStructure_->discount(maturityDate_);
+        QuoteSensitivities result;
+        result.available = true;
+        result.sensitivities[termStructure_] =
+            {{earliestDate_, -100.0/(yearFraction_*d2)},
+             {maturityDate_, 100.0*d1/(yearFraction_*d2*d2)}};
+        return result;
+    }
+
     Real FuturesRateHelper::convexityAdjustment() const {
         return convAdj_.empty() ? 0.0 : convAdj_->value();
     }
@@ -212,6 +227,23 @@ namespace QuantLib {
         // the forecast fixing flag is set to true because
         // we do not want to take fixing into account
         return iborIndex_->fixing(fixingDate_, true);
+    }
+
+    QuoteSensitivities DepositRateHelper::impliedQuoteSensitivitiesByCurve() const {
+        if (termStructure_ == nullptr)
+            return {};
+        // IborIndex::forecastFixing gives Q = (P1/P2-1)/tau
+        Date d1 = iborIndex_->valueDate(fixingDate_);
+        Date d2 = iborIndex_->maturityDate(d1);
+        Time tau = iborIndex_->dayCounter().yearFraction(d1, d2);
+        DiscountFactor D1 = termStructure_->discount(d1);
+        DiscountFactor D2 = termStructure_->discount(d2);
+        QuoteSensitivities result;
+        result.available = true;
+        result.sensitivities[termStructure_] =
+            {{d1, 1.0/(tau*D2)},
+             {d2, -D1/(tau*D2*D2)}};
+        return result;
     }
 
     void DepositRateHelper::setTermStructure(YieldTermStructure* t) {
@@ -366,6 +398,32 @@ namespace QuantLib {
                         termStructure_->discount(maturityDate_) -
                     1.0) /
                    spanningTime_;
+    }
+
+    QuoteSensitivities FraRateHelper::impliedQuoteSensitivitiesByCurve() const {
+        if (termStructure_ == nullptr)
+            return {};
+        // both impliedQuote() branches use Q = (P1/P2-1)/tau
+        Date d1, d2;
+        Time tau;
+        if (useIndexedCoupon_) {
+            // use IborIndex::forecastFixing dates
+            d1 = iborIndex_->valueDate(fixingDate_);
+            d2 = iborIndex_->maturityDate(d1);
+            tau = iborIndex_->dayCounter().yearFraction(d1, d2);
+        } else {
+            d1 = earliestDate_;
+            d2 = maturityDate_;
+            tau = spanningTime_;
+        }
+        DiscountFactor D1 = termStructure_->discount(d1);
+        DiscountFactor D2 = termStructure_->discount(d2);
+        QuoteSensitivities result;
+        result.available = true;
+        result.sensitivities[termStructure_] =
+            {{d1, 1.0/(tau*D2)},
+             {d2, -D1/(tau*D2*D2)}};
+        return result;
     }
 
     void FraRateHelper::setTermStructure(YieldTermStructure* t) {
@@ -641,6 +699,19 @@ namespace QuantLib {
         return result;
     }
 
+    QuoteSensitivities SwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
+        if (termStructure_ == nullptr || discountRelinkableHandle_.empty())
+            return {};
+        // custom pricer adjustments are not covered
+        if (couponPricer_ != nullptr)
+            return {};
+
+        Spread s = spread_.empty() ? 0.0 : spread_->value();
+        return detail::fairRateSensitivities(
+            swap_->fixedLeg(), swap_->floatingLeg(), s,
+            **discountRelinkableHandle_);
+    }
+
     void SwapRateHelper::accept(AcyclicVisitor& v) {
         auto* v1 = dynamic_cast<Visitor<SwapRateHelper>*>(&v);
         if (v1 != nullptr)
@@ -816,6 +887,35 @@ namespace QuantLib {
         } else {
             return (collRatio/ratio-1)*spot;
         }
+    }
+
+    QuoteSensitivities FxSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
+        if (termStructure_ == nullptr || collHandle_.empty())
+            return {};
+        DiscountFactor c1 = collHandle_->discount(earliestDate_);
+        DiscountFactor c2 = collHandle_->discount(latestDate_);
+        Real collRatio = c1/c2;
+        DiscountFactor d1 = termStructureHandle_->discount(earliestDate_);
+        DiscountFactor d2 = termStructureHandle_->discount(latestDate_);
+        Real spot = spot_->value();
+        QuoteSensitivities result;
+        result.available = true;
+        auto& own = result.sensitivities[termStructure_];
+        auto& coll = result.sensitivities[&**collHandle_];
+        if (isFxBaseCurrencyCollateralCurrency_) {
+            // Q = ((d1/d2)/collRatio - 1)*spot = (d1*c2/(d2*c1) - 1)*spot
+            own.emplace_back(earliestDate_, spot/(collRatio*d2));
+            own.emplace_back(latestDate_, -spot*d1/(collRatio*d2*d2));
+            coll.emplace_back(earliestDate_, -spot*d1*c2/(d2*c1*c1));
+            coll.emplace_back(latestDate_, spot*d1/(d2*c1));
+        } else {
+            // Q = (collRatio*d2/d1 - 1)*spot = (c1*d2/(c2*d1) - 1)*spot
+            own.emplace_back(earliestDate_, -spot*collRatio*d2/(d1*d1));
+            own.emplace_back(latestDate_, spot*collRatio/d1);
+            coll.emplace_back(earliestDate_, spot*d2/(c2*d1));
+            coll.emplace_back(latestDate_, -spot*c1*d2/(c2*c2*d1));
+        }
+        return result;
     }
 
     void FxSwapRateHelper::setTermStructure(YieldTermStructure* t) {

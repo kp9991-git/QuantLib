@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <Natvis Include="QuantLib.natvis" />
@@ -514,6 +514,9 @@
       <Filter>cashflows</Filter>
     </ClInclude>
     <ClInclude Include="ql\cashflows\couponpricer.hpp">
+      <Filter>cashflows</Filter>
+    </ClInclude>
+    <ClInclude Include="ql\cashflows\couponsensitivities.hpp">
       <Filter>cashflows</Filter>
     </ClInclude>
     <ClInclude Include="ql\cashflows\digitalcmscoupon.hpp">
@@ -1981,6 +1984,12 @@
       <Filter>termstructures</Filter>
     </ClInclude>
     <ClInclude Include="ql\termstructures\bootstraphelper.hpp">
+      <Filter>termstructures</Filter>
+    </ClInclude>
+    <ClInclude Include="ql\termstructures\bootstrapjacobian.hpp">
+      <Filter>termstructures</Filter>
+    </ClInclude>
+    <ClInclude Include="ql\termstructures\curvejacobiangraph.hpp">
       <Filter>termstructures</Filter>
     </ClInclude>
     <ClInclude Include="ql\termstructures\defaulttermstructure.hpp">
@@ -4671,6 +4680,9 @@
       <Filter>cashflows</Filter>
     </ClCompile>
     <ClCompile Include="ql\cashflows\couponpricer.cpp">
+      <Filter>cashflows</Filter>
+    </ClCompile>
+    <ClCompile Include="ql\cashflows\couponsensitivities.cpp">
       <Filter>cashflows</Filter>
     </ClCompile>
     <ClCompile Include="ql\cashflows\digitalcmscoupon.cpp">

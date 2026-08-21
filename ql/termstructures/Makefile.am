@@ -8,6 +8,7 @@ this_include_HEADERS = \
 	all.hpp \
 	bootstraperror.hpp \
 	bootstraphelper.hpp \
+	bootstrapjacobian.hpp \
 	defaulttermstructure.hpp \
 	globalbootstrap.hpp \
 	globalbootstrapvars.hpp \

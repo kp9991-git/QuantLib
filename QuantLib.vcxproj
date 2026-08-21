@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug (static runtime)|Win32">
@@ -519,6 +519,7 @@
     <ClInclude Include="ql\cashflows\conundrumpricer.hpp" />
     <ClInclude Include="ql\cashflows\coupon.hpp" />
     <ClInclude Include="ql\cashflows\couponpricer.hpp" />
+    <ClInclude Include="ql\cashflows\couponsensitivities.hpp" />
     <ClInclude Include="ql\cashflows\cpicoupon.hpp" />
     <ClInclude Include="ql\cashflows\cpicouponpricer.hpp" />
     <ClInclude Include="ql\cashflows\digitalcmscoupon.hpp" />
@@ -1692,6 +1693,7 @@
     <ClInclude Include="ql\termstructures\all.hpp" />
     <ClInclude Include="ql\termstructures\bootstraperror.hpp" />
     <ClInclude Include="ql\termstructures\bootstraphelper.hpp" />
+    <ClInclude Include="ql\termstructures\bootstrapjacobian.hpp" />
     <ClInclude Include="ql\termstructures\credit\all.hpp" />
     <ClInclude Include="ql\termstructures\credit\defaultdensitystructure.hpp" />
     <ClInclude Include="ql\termstructures\credit\defaultprobabilityhelpers.hpp" />
@@ -1703,6 +1705,7 @@
     <ClInclude Include="ql\termstructures\credit\piecewisedefaultcurve.hpp" />
     <ClInclude Include="ql\termstructures\credit\probabilitytraits.hpp" />
     <ClInclude Include="ql\termstructures\credit\survivalprobabilitystructure.hpp" />
+    <ClInclude Include="ql\termstructures\curvejacobiangraph.hpp" />
     <ClInclude Include="ql\termstructures\defaulttermstructure.hpp" />
     <ClInclude Include="ql\termstructures\globalbootstrap.hpp" />
     <ClInclude Include="ql\termstructures\globalbootstrapvars.hpp" />
@@ -1972,6 +1975,7 @@
     <ClCompile Include="ql\cashflows\conundrumpricer.cpp" />
     <ClCompile Include="ql\cashflows\coupon.cpp" />
     <ClCompile Include="ql\cashflows\couponpricer.cpp" />
+    <ClCompile Include="ql\cashflows\couponsensitivities.cpp" />
     <ClCompile Include="ql\cashflows\cpicoupon.cpp" />
     <ClCompile Include="ql\cashflows\cpicouponpricer.cpp" />
     <ClCompile Include="ql\cashflows\digitalcmscoupon.cpp" />

@@ -21,6 +21,7 @@
 #include <ql/instruments/makeois.hpp>
 #include <ql/instruments/simplifynotificationgraph.hpp>
 #include <ql/cashflows/couponpricer.hpp>
+#include <ql/cashflows/couponsensitivities.hpp>
 #include <ql/cashflows/overnightindexedcoupon.hpp>
 #include <ql/pricingengines/swap/discountingswapengine.hpp>
 #include <ql/termstructures/yield/oisratehelper.hpp>
@@ -229,6 +230,20 @@ namespace QuantLib {
         Real totNPV = - (floatingLegNPV+spreadNPV);
         Real result = totNPV/(swap_->fixedLegBPS()/basisPoint);
         return result;
+    }
+
+    QuoteSensitivities OISRateHelper::impliedQuoteSensitivitiesByCurve() const {
+        if (termStructure_ == nullptr || discountRelinkableHandle_.empty())
+            return {};
+        // custom pricer adjustments are not covered
+        // coupon-level checks handle other unsupported features
+        if (pricer_ != nullptr)
+            return {};
+
+        Spread s = overnightSpread_.empty() ? 0.0 : overnightSpread_->value();
+        return detail::fairRateSensitivities(
+            swap_->fixedLeg(), swap_->overnightLeg(), s,
+            **discountRelinkableHandle_);
     }
 
     void OISRateHelper::accept(AcyclicVisitor& v) {

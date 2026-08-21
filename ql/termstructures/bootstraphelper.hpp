@@ -33,9 +33,27 @@
 #include <ql/quotes/simplequote.hpp>
 #include <ql/settings.hpp>
 #include <ql/time/date.hpp>
+#include <map>
+#include <set>
 #include <utility>
+#include <vector>
 
 namespace QuantLib {
+
+    class TermStructure;
+
+    //! per-curve sensitivities of an implied quote
+    /*! Values are sensitivities to the term-structure values queried at
+        the given dates. Yield-curve values are discount factors.
+    */
+    struct QuoteSensitivities {
+        //! whether analytical sensitivities are available
+        bool available = false;
+        //! per-curve sensitivities \f$ (d, \partial Q/\partial P(d)) \f$
+        std::map<const TermStructure*, std::vector<std::pair<Date, Real>>> sensitivities;
+        //! curves with incomplete contributions in the map
+        std::set<const TermStructure*> incomplete;
+    };
 
     struct Pillar {
         //! Alternatives ways of determining the pillar date
@@ -68,6 +86,39 @@ namespace QuantLib {
         const Handle<Quote>& quote() const { return quote_; }
         virtual Real impliedQuote() const = 0;
         Real quoteError() const { return quote_->value() - impliedQuote(); }
+        //! analytical sensitivities of the implied quote by term structure
+        /*! Term structures are identified by the pointers from their
+            handles. The default result means sensitivities are unavailable.
+        */
+        virtual QuoteSensitivities impliedQuoteSensitivitiesByCurve() const {
+            return {};
+        }
+        //! sensitivities to the curve being bootstrapped
+        /*! Returns pairs \f$ (t, \partial Q / \partial v(t)) \f$ where
+            \f$ Q \f$ is the implied quote and \f$ v(t) \f$ is the value
+            queried from the term structure being bootstrapped at time t
+            (measured with the term structure's day counter). For yield
+            term structures \f$ v(t) \f$ is the discount factor at t.
+            An empty vector means sensitivities are unavailable and triggers
+            numerical differentiation. The default implementation extracts
+            the bootstrapped curve from impliedQuoteSensitivitiesByCurve().
+        */
+        virtual std::vector<std::pair<Time, Real>> impliedQuoteSensitivities() const {
+            if (termStructure_ == nullptr)
+                return {};
+            QuoteSensitivities s = impliedQuoteSensitivitiesByCurve();
+            const auto* own = static_cast<const TermStructure*>(termStructure_);
+            if (!s.available || s.incomplete.count(own) != 0)
+                return {};
+            auto i = s.sensitivities.find(own);
+            if (i == s.sensitivities.end())
+                return {};
+            std::vector<std::pair<Time, Real>> result;
+            result.reserve(i->second.size());
+            for (const auto& [date, dQdP] : i->second)
+                result.emplace_back(termStructure_->timeFromReference(date), dQdP);
+            return result;
+        }
         //! sets the term structure to be used for pricing
         /*! \warning Being a pointer and not a shared_ptr, the term
                      structure is not guaranteed to remain allocated

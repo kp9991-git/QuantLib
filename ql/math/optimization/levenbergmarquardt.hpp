@@ -52,6 +52,9 @@ namespace QuantLib {
                            Real xtol = 1.0e-8,
                            Real gtol = 1.0e-8,
                            bool useCostFunctionsJacobian = false);
+        bool usesCostFunctionJacobian() const override {
+            return useCostFunctionsJacobian_;
+        }
         EndCriteria::Type minimize(Problem& P,
                                    const EndCriteria& endCriteria) override;
 

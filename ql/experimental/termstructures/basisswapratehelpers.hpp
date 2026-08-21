@@ -67,6 +67,7 @@ namespace QuantLib {
                                     StubIndexConfig otherStubIndexConfig = {});
 
         Real impliedQuote() const override;
+        QuoteSensitivities impliedQuoteSensitivitiesByCurve() const override;
         void accept(AcyclicVisitor&) override;
         // NOLINTNEXTLINE(cppcoreguidelines-noexcept-swap,performance-noexcept-swap)
         ext::shared_ptr<Swap> swap() const { return swap_; }
@@ -150,6 +151,7 @@ namespace QuantLib {
                                          bool basisOnIborLeg = false);
 
         Real impliedQuote() const override;
+        QuoteSensitivities impliedQuoteSensitivitiesByCurve() const override;
         void accept(AcyclicVisitor&) override;
         // NOLINTNEXTLINE(cppcoreguidelines-noexcept-swap,performance-noexcept-swap)
         ext::shared_ptr<Swap> swap() const { return swap_; }
@@ -221,6 +223,7 @@ namespace QuantLib {
             DateGeneration::Rule rule = DateGeneration::Backward);
 
         Real impliedQuote() const override;
+        QuoteSensitivities impliedQuoteSensitivitiesByCurve() const override;
         void accept(AcyclicVisitor&) override;
         // NOLINTNEXTLINE(cppcoreguidelines-noexcept-swap,performance-noexcept-swap)
         ext::shared_ptr<Swap> swap() const { return swap_; }

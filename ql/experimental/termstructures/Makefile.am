@@ -5,7 +5,8 @@ this_includedir=${includedir}/${subdir}
 this_include_HEADERS = \
     all.hpp \
     basisswapratehelpers.hpp \
-    crosscurrencyratehelpers.hpp
+    crosscurrencyratehelpers.hpp \
+    curvechainrulecalculator.hpp
 
 cpp_files = \
     basisswapratehelpers.cpp \

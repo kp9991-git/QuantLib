@@ -95,6 +95,7 @@ namespace QuantLib {
         //! \name RateHelper interface
         //@{
         Real impliedQuote() const override;
+        QuoteSensitivities impliedQuoteSensitivitiesByCurve() const override;
         void setTermStructure(YieldTermStructure*) override;
         //@}
         //! \name inspectors

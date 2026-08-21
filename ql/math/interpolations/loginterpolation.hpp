@@ -396,6 +396,17 @@ namespace QuantLib {
                 return derivative(x)*interpolation_.derivative(x, true) +
                             value(x)*interpolation_.secondDerivative(x, true);
             }
+            std::vector<std::pair<Size, Real>> nodeWeights(Real x) const override {
+                // f(x) = exp(g(x)) with g interpolating log(y)
+                // df/dy_j = f(x) * dg/d(log y_j) / y_j
+                auto weights = interpolation_.nodeWeights(x, true);
+                if (weights.empty())
+                    return weights;
+                Real v = value(x);
+                for (auto& w : weights)
+                    w.second *= v/this->yBegin_[w.first];
+                return weights;
+            }
 
           private:
             std::vector<Real> logY_;
