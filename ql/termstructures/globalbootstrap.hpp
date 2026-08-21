@@ -50,16 +50,12 @@ public:
     virtual void setCostFunctionArgument(const Array& v) const = 0;
     virtual Array evaluateCostFunction() const = 0;
     virtual void setToValid() const = 0;
-    //! type-erased view of the contributor's curve, used to assemble
-    //! cross-curve Jacobians; a node with a null curve (the default)
-    //! means that the contributor does not support this
+    //! curve interface for cross-curve Jacobians
+    /*! A null curve means the contributor does not support the interface. */
     virtual detail::CurveJacobianNode jacobianNode() const { return {}; }
-    //! weights applied to the contributor's residuals, when the
-    //! analytical Jacobian of its cost function is supported; an empty
-    //! array (the default) means that it is not
+    //! residual weights, or an empty array when unsupported
     virtual Array residualWeights() const { return {}; }
-    //! derivative of the contributor's variable transformation at the
-    //! given argument; an empty array (the default) means not supported
+    //! variable-transform derivatives, or an empty array when unsupported
     virtual Array transformDerivatives(const Array&) const { return {}; }
 };
 
@@ -77,9 +73,7 @@ class MultiCurveBootstrap : public ext::enable_shared_from_this<MultiCurveBootst
     const std::vector<const MultiCurveBootstrapContributor*>& contributors() const {
         return contributors_;
     }
-    //! the term structures among the registered observers, i.e., the
-    //! non-bootstrapped curves of the group; they are functions of the
-    //! member curves and must not be treated as constants
+    //! non-bootstrapped group curves that may depend on member curves
     std::set<const TermStructure*> observerTermStructures() const;
 
   private:
@@ -172,10 +166,8 @@ template <class Curve> class GlobalBootstrap final : public MultiCurveBootstrapC
                     bool analyticJacobian = false);
     void setup(Curve *ts);
     void calculate() const;
-    //! type-erased views of all the curves bootstrapped jointly with
-    //! this one, own curve first, along with the group's known
-    //! dependent curves; no members when the curve is not part of a
-    //! multi-curve group
+    //! joint curve group with this curve first
+    /*! Returns no members when this curve is not in a multi-curve group. */
     detail::CurveJacobianGroup jacobianGroup() const;
 
   private:
@@ -198,7 +190,7 @@ template <class Curve> class GlobalBootstrap final : public MultiCurveBootstrapC
     Array transformDerivatives(const Array& x) const override;
     bool analyticCostJacobian(Matrix& jac, const Array& x) const;
 
-    // cost function using the analytical Jacobian when available
+    // cost function with optional analytical Jacobian
     class BootstrapCostFunction : public CostFunction {
       public:
         explicit BootstrapCostFunction(const GlobalBootstrap<Curve>* b) : b_(b) {}
@@ -307,12 +299,12 @@ GlobalBootstrap<Curve>::GlobalBootstrap(
 template <class Curve>
 detail::CurveJacobianNode GlobalBootstrap<Curve>::jacobianNode() const {
     if constexpr (!detail::supportsCurveJacobianNode<Curve>) {
-        // e.g., inflation curves
+        // for example, inflation curves
         return {};
     } else {
         if (ts_ == nullptr)
             return {};
-        // non-owning: the curve owns this bootstrap object, not vice versa
+        // non-owning because the curve owns this bootstrap
         ext::shared_ptr<Curve> curve(ts_, null_deleter());
         return detail::BootstrapJacobianAccess<Curve>::makeNode(curve);
     }
@@ -320,8 +312,7 @@ detail::CurveJacobianNode GlobalBootstrap<Curve>::jacobianNode() const {
 
 template <class Curve>
 Array GlobalBootstrap<Curve>::residualWeights() const {
-    // additional error terms and variables are outside the scope of
-    // the analytical machinery
+    // additional terms and variables are unsupported
     if (additionalPenalties_ || additionalVariables_ || !aliveAdditionalHelpers_.empty())
         return {};
     return Array(aliveInstrumentWeights_.begin(), aliveInstrumentWeights_.end());
@@ -379,8 +370,7 @@ template <class Curve> void GlobalBootstrap<Curve>::setup(Curve* ts) {
     Real accuracy = accuracy_ != Null<Real>() ? accuracy_ : ts_->accuracy_;
     if (!optimizer_) {
         optimizer_ = ext::make_shared<LevenbergMarquardt>(accuracy, accuracy, accuracy);
-        // remember this so that we may later switch to an optimizer
-        // using the analytical Jacobian, if available for this curve
+        // allow an analytical-Jacobian optimizer later
         defaultOptimizer_ = true;
     }
     if (!endCriteria_) {
@@ -432,11 +422,8 @@ template <class Curve> void GlobalBootstrap<Curve>::initialize() const {
         );
     }
 
-    // Calculate dates and times.  They are built into local vectors and
-    // then copied in place when the sizes are unchanged, so that the
-    // iterators stored in an existing interpolation remain valid; when
-    // the sizes change, the vectors are reassigned, but in that case
-    // the interpolation is rebuilt as well (validCurve_ is reset below).
+    // Preserve interpolation iterators when the grid size is unchanged
+    // A changed grid is assigned and the interpolation is rebuilt
 
     // first populate the dates vector and make sure they are sorted and unique
     std::vector<Date> dates;
@@ -609,8 +596,7 @@ bool GlobalBootstrap<Curve>::analyticCostJacobian(Matrix& jac, const Array& x) c
     if constexpr (!detail::hasSensitivityScale<Traits, Curve>) {
         return false;
     } else {
-        // additional error terms and variables are outside the scope of
-        // the analytical machinery
+        // additional terms and variables are unsupported
         if (additionalPenalties_ || additionalVariables_ || !aliveAdditionalHelpers_.empty())
             return false;
 
@@ -624,12 +610,11 @@ bool GlobalBootstrap<Curve>::analyticCostJacobian(Matrix& jac, const Array& x) c
             if (!flag)
                 return false;
 
-        // the cost function values are w_i * (quote_i - impliedQuote_i) as
-        // functions of the transformed variables x_j
+        // cost values are w_i * (quote_i - impliedQuote_i)
         for (Size j = 0; j < J.columns(); ++j) {
             Real dTransform = 1.0;
             if constexpr (hasTransform<Traits>) {
-                // derivative of the variable transformation
+                // variable-transform derivative
                 Real h = 1.0e-7 * std::max(std::abs(x[j]), 1.0);
                 dTransform = (Traits::transformDirect(x[j] + h, j + 1, ts_) -
                               Traits::transformDirect(x[j] - h, j + 1, ts_)) / (2.0 * h);

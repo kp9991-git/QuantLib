@@ -330,15 +330,8 @@ namespace QuantLib {
             collateralHandle_.empty())
             return {};
 
-        // Following impliedQuote(), the quote is
-        //
-        //   Q = -(npvQuote - npvBase)/bps
-        //
-        // with each leg NPV, in its own currency, discounted on its own
-        // curve and including the notional exchanges, and bps equal to
-        // -A_base or +A_quote depending on the leg the basis is quoted
-        // on.  Each leg contributes sensitivities to its discount curve
-        // and to the forecast curves of its coupons.
+        // Q = -(npvQuote - npvBase)/bps
+        // bps is -A_base or A_quote, depending on the quoted leg
         QuoteSensitivities result;
         const Leg* legs[2] = {&baseCcyIborLeg_, &quoteCcyIborLeg_};
         const Handle<YieldTermStructure> discountHandles[2] = {
@@ -376,7 +369,7 @@ namespace QuantLib {
             // notional exchanges at start and maturity
             discountBucket.emplace_back(initialNotionalExchangeDate_, -npvSign/bps);
             discountBucket.emplace_back(finalNotionalExchangeDate_, npvSign/bps);
-            // sensitivities to the coupons' forecast curves
+            // coupon forecast sensitivities
             for (const auto& d : flows[legNo]) {
                 if (d.sensitivities.empty())
                     continue;
@@ -478,17 +471,10 @@ namespace QuantLib {
             collateralHandle_.empty())
             return {};
 
-        // Both discount curves drive the leg NPVs as well as the FX
-        // forwards used for the conversion factor and for the
-        // resettable-leg notionals; the coupon forwards add the
-        // indices' forecast curves.  Following the engine, the quote
-        // is Q = -NPV/B with
-        //
+        // Both discount curves drive NPVs, FX conversion, and reset notionals
+        // Coupon forwards add the index forecast curves
+        // Q = -NPV/B with
         //   NPV = -fx*N_base + N_quote,   B = payer_k*fxconv_k*A_k
-        //
-        // where N and A are the in-currency leg NPVs and annuities, k
-        // is the leg the basis is quoted on, and fx converts the base
-        // currency into the quote currency at unit spot.
         QuoteSensitivities result;
         const Handle<YieldTermStructure>& baseDisc = baseCcyLegDiscountHandle();
         const Handle<YieldTermStructure>& quoteDisc = quoteCcyLegDiscountHandle();
@@ -510,23 +496,21 @@ namespace QuantLib {
         const Currency& constCcy =
             resettingLegNo == 0 ? quoteCcyIdx_->currency() : baseCcyIdx_->currency();
 
-        // FX settlement date, as resolved by the swap and its engine
+        // FX settlement date used by the swap engine
         Calendar fxCalendar = (fxResetFixingDays_ != 0 && fxResetFixingCalendar_.empty())
             ? calendar_ : fxResetFixingCalendar_;
         Date fxSettle = fxCalendar.empty() ? refDate :
             FxResetConvention(fxResetFixingDays_, fxCalendar).valueDate(today);
 
-        // one sensitivity entry, tagged with the curve it refers to
         using TaggedEntry = std::tuple<const TermStructure*, Date, Real>;
 
-        // conversion of base-currency into quote-currency amounts at
-        // unit spot: fx = P_quote(settle)/P_base(settle)
+        // base-to-quote conversion at unit spot
         Real fx = quoteDisc->discount(fxSettle)/baseDisc->discount(fxSettle);
         const TaggedEntry dFx[2] = {
             {quoteKey, fxSettle, fx/quoteDisc->discount(fxSettle)},
             {baseKey, fxSettle, -fx/baseDisc->discount(fxSettle)}};
 
-        // mirror of DiscountingFxResetPricer::fxRate at unit spot
+        // same convention as DiscountingFxResetPricer::fxRate at unit spot
         auto historicalReset = [&](const Date& fixingDate) -> Real {
             try {
                 ExchangeRate rate = ExchangeRateManager::instance().lookup(
@@ -551,7 +535,7 @@ namespace QuantLib {
                    /resetCurve->discount(reset.valueDate()));
             return {rate, true};
         };
-        // d(scale * fxRate)/dP entries w.r.t. both discount curves
+        // d(scale * fxRate)/dP for both discount curves
         auto addResetSensitivities = [&](const FxReset& reset, const Reset& r, Real scale,
                                          std::vector<TaggedEntry>& out) {
             if (!r.forecast)
@@ -571,9 +555,7 @@ namespace QuantLib {
             Real amount = 0.0, ntau = 0.0;
             std::vector<TaggedEntry> dAmount, dNtau;
         };
-        // analysis of a coupon's own amount, falling back to pricing by
-        // amount() and flagging the forecast curve when the analytical
-        // formulas don't apply
+        // fall back to amount() and mark incomplete forecast curves
         auto analyzeFlowCoupon = [&](const ext::shared_ptr<CashFlow>& cf,
                                      detail::CouponSensitivityAnalysis& a) -> bool {
             a = detail::analyzeCoupon(cf, true);
@@ -583,7 +565,7 @@ namespace QuantLib {
                     return false;
                 if (ext::dynamic_pointer_cast<FloatingRateCoupon>(cf) != nullptr) {
                     if (a.forecastCurve == nullptr)
-                        // the coupon depends on a curve we cannot identify
+                        // unidentified forecast curve
                         return false;
                     result.incomplete.insert(a.forecastCurve);
                 }
@@ -605,8 +587,7 @@ namespace QuantLib {
                     auto r = analyzeReset(coupon->fxReset());
                     if (r.rate == Null<Real>())
                         return {};
-                    // the amounts of the underlying coupon, rescaled to
-                    // the FX-reset notional
+                    // rescale the underlying coupon to the reset notional
                     detail::CouponSensitivityAnalysis ua;
                     if (!analyzeFlowCoupon(coupon->underlying(), ua))
                         return {};
@@ -620,8 +601,7 @@ namespace QuantLib {
                     addResetSensitivities(coupon->fxReset(), r,
                                           coupon->constantLegNotional()*coupon->accrualPeriod(),
                                           d.dNtau);
-                    // the underlying amount itself moves with its
-                    // forecast curve
+                    // underlying coupon forecast sensitivity
                     for (const auto& [date, w] : ua.amountSensitivities)
                         d.dAmount.emplace_back(
                             static_cast<const TermStructure*>(ua.forecastCurve),
@@ -683,11 +663,11 @@ namespace QuantLib {
             Real fxconv = legNo == 0 ? fx : 1.0;
             for (const auto& d : flows[legNo]) {
                 DiscountFactor P = legCurve->discount(d.payDate);
-                // -dNPV/B through the amounts
+                // amount contribution to -dNPV/B
                 for (const auto& [key, date, w] : d.dAmount)
                     emit(key, date, -payer*fxconv*P*w/B);
                 emit(legKey, d.payDate, -payer*fxconv*d.amount/B);
-                // -Q*dB/B through the basis-leg annuity
+                // annuity contribution to -Q*dB/B
                 if (legNo == basisLegNo) {
                     for (const auto& [key, date, w] : d.dNtau)
                         emit(key, date, -quote*payerBasis*fxconvBasis*P*w/B);
@@ -695,8 +675,7 @@ namespace QuantLib {
                 }
             }
         }
-        // NPV and, for a base-currency basis leg, B also depend on the
-        // conversion factor
+        // FX-conversion contribution to NPV and base-leg B
         for (const auto& [key, date, w] : dFx)
             emit(key, date, legNPV[0]*w/B);
         if (basisLegNo == 0)

@@ -50,7 +50,7 @@ namespace QuantLib {
             CouponSensitivityAnalysis a;
 
             if (!withSensitivities) {
-                // when only the value is needed, any coupon will do
+                // amount-only mode supports any coupon
                 if (auto cpn = ext::dynamic_pointer_cast<Coupon>(cf)) {
                     a.supported = true;
                     a.ntau = cpn->nominal()*cpn->accrualPeriod();
@@ -105,13 +105,9 @@ namespace QuantLib {
                 if (!withSensitivities)
                     return a;
 
-                // The compound factor is (mirroring the corresponding
-                // computation in CompoundingOvernightIndexedCouponPricer)
-                //
+                // Same factor as CompoundingOvernightIndexedCouponPricer
                 //   C = C_past * [boundary growth factors] * P(v_s)/P(v_e)
-                //
-                // with at most one non-telescoping growth factor at each
-                // end of the value-date schedule.
+                // with at most one boundary factor at each end
                 auto index = ext::dynamic_pointer_cast<OvernightIndex>(overnight->index());
                 const Handle<YieldTermStructure>& curve = index->forwardingTermStructure();
                 const DayCounter& dc = index->dayCounter();
@@ -123,7 +119,7 @@ namespace QuantLib {
                 const auto& dt = overnight->dt();
                 Size n = fixingDates.size();
 
-                // first fixing to be forecast
+                // first forecast fixing
                 Size i0 = 0;
                 while (i0 < n && fixingDates[i0] < today)
                     ++i0;
@@ -154,8 +150,7 @@ namespace QuantLib {
                     a.amountSensitivities.emplace_back(
                         v2, -amountScale*dt[i]*P1/(tauIndex*P2*P2*g));
                 };
-                // possible front and back non-telescoping factors, when
-                // the accrual start or end falls on a fixing holiday
+                // boundary factors caused by fixing holidays
                 Size start = (i0 == 0 && valueDates.front() < interestDates.front())
                              ? Size(1) : i0;
                 Size end = n - (valueDates[n] <= interestDates[n] ? 0 : 1);
@@ -196,8 +191,7 @@ namespace QuantLib {
                         return false;
                     if (ext::dynamic_pointer_cast<FloatingRateCoupon>(cf) != nullptr) {
                         if (a.forecastCurve == nullptr)
-                            // the coupon depends on a curve we
-                            // cannot identify
+                            // unidentified forecast curve
                             return false;
                         result.incomplete.insert(a.forecastCurve);
                     }
@@ -219,8 +213,7 @@ namespace QuantLib {
             QuoteSensitivities result;
             Date settlement = discountCurve.referenceDate();
 
-            // fair rate = F/A, with F the floating-leg NPV including the
-            // helper spread and A the fixed-leg annuity
+            // fair rate = floating-leg NPV / fixed-leg annuity
             Real annuity = 0.0;
             std::vector<std::pair<Date, Real>> fixedData; // (payment date, N*tau)
             for (const auto& cf : fixedLeg) {
@@ -244,7 +237,7 @@ namespace QuantLib {
                 floatingNPV += (d.amount + helperSpread*d.ntau)*d.discount;
             Real fairRate = floatingNPV/annuity;
 
-            // sensitivities to the discount factors at the payment dates
+            // discount sensitivities
             auto& discountBucket =
                 result.sensitivities[static_cast<const TermStructure*>(&discountCurve)];
             for (const auto& [payDate, ntau] : fixedData)
@@ -252,7 +245,7 @@ namespace QuantLib {
             for (const auto& d : floatingData)
                 discountBucket.emplace_back(d.payDate,
                                             (d.amount + helperSpread*d.ntau)/annuity);
-            // sensitivities to the forecast discount factors
+            // forecast sensitivities
             for (const auto& d : floatingData) {
                 if (d.sensitivities.empty())
                     continue;
@@ -279,8 +272,7 @@ namespace QuantLib {
                                     otherData, result))
                 return {};
 
-            // fair basis = (O - B)/A, with B and O the leg NPVs and A the
-            // base-leg annuity
+            // fair basis = (other NPV - base NPV) / base annuity
             Real annuity = 0.0, baseNPV = 0.0, otherNPV = 0.0;
             for (const auto& d : baseData) {
                 annuity += d.ntau*d.discount;
@@ -292,7 +284,7 @@ namespace QuantLib {
                 return {};
             Real fairBasis = (otherNPV - baseNPV)/annuity;
 
-            // sensitivities to the discount factors at the payment dates
+            // discount sensitivities
             auto& discountBucket =
                 result.sensitivities[static_cast<const TermStructure*>(&discountCurve)];
             for (const auto& d : baseData)
@@ -300,7 +292,7 @@ namespace QuantLib {
                                             (-d.amount - fairBasis*d.ntau)/annuity);
             for (const auto& d : otherData)
                 discountBucket.emplace_back(d.payDate, d.amount/annuity);
-            // sensitivities to the forecast discount factors
+            // forecast sensitivities
             for (const auto& d : baseData) {
                 if (d.sensitivities.empty())
                     continue;

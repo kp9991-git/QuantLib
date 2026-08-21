@@ -397,7 +397,7 @@ namespace QuantLib {
                             value(x)*interpolation_.secondDerivative(x, true);
             }
             std::vector<std::pair<Size, Real>> nodeWeights(Real x) const override {
-                // f(x) = exp(g(x)) with g interpolating log(y);
+                // f(x) = exp(g(x)) with g interpolating log(y)
                 // df/dy_j = f(x) * dg/d(log y_j) / y_j
                 auto weights = interpolation_.nodeWeights(x, true);
                 if (weights.empty())

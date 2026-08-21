@@ -185,11 +185,8 @@ namespace QuantLib {
         //@}
         //! \name Jacobian
         //@{
-        /*! Jacobian of the implied quotes with respect to the curve
-            nodes; see PiecewiseYieldCurve::jacobian() for the
-            conventions.  As no credit helper provides analytical
-            sensitivities yet, all rows are currently computed by
-            central finite differences.
+        /*! Jacobian of helper quotes with respect to curve nodes.
+            Credit helpers currently use central finite differences.
         */
         Matrix jacobian(std::vector<bool>* analyticRows = nullptr) const {
             calculate();
@@ -197,9 +194,7 @@ namespace QuantLib {
                 this, instruments_, this->times_, this->data_,
                 this->interpolation_, !this->jumpDates().empty(), analyticRows);
         }
-        /*! Jacobian of the curve nodes with respect to the quotes; see
-            PiecewiseYieldCurve::inverseJacobian() for the conventions.
-        */
+        //! Jacobian of curve nodes with respect to helper quotes
         Matrix inverseJacobian(std::vector<bool>* analyticRows = nullptr) const {
             return detail::inverseBootstrapJacobian(jacobian(analyticRows));
         }

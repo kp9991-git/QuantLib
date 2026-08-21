@@ -145,38 +145,17 @@ namespace QuantLib {
         //@}
         //! \name Jacobian
         //@{
-        /*! Jacobian of the implied quotes with respect to the curve nodes.
-
-            Element (i,j) is the derivative of the i-th alive helper's
-            implied quote with respect to the curve value data()[j+1]
-            (the value at the reference date, data()[0], is not a free
-            variable).  Rows follow the order of the helpers as stored
-            in the curve (i.e., sorted by pillar date when the iterative
-            bootstrap is used). Columns follow the curve nodes, so the
-            matrix is square.
-
-            When the curve is part of a multi-curve group or built with
-            exogenous curves, this is the partial derivative with the
-            other curves' nodes kept fixed.
+        /*! Jacobian of helper quotes with respect to free curve nodes.
+            Rows follow alive helpers and columns follow data()[1..]. For
+            multi-curve dependencies, other curve nodes are fixed.
         */
         Matrix jacobian(std::vector<bool>* analyticRows = nullptr) const;
 
-        /*! Jacobian of the curve nodes with respect to the quotes.
-
-            Element (j,i) is the derivative of the curve value
-            data()[j+1] with respect to the i-th alive helper's quote.
-            For a stand-alone curve, this is the inverse of jacobian().
-
-            When the curve is bootstrapped jointly with other curves as
-            part of a multi-curve group (see MultiCurve), the returned
-            derivatives account for the feedback through the whole
-            group: the columns then span the quotes of all member
-            curves --- this curve's quotes first, followed by those of
-            the other members in the group's registration order --- so
-            that the result is sufficient to propagate risk.  In that
-            case the flag vector, if given, reports for each quote of
-            the group whether all its contributions were computed
-            analytically.
+        /*! Jacobian of free curve nodes with respect to helper quotes.
+            For a stand-alone curve, this is inverse(jacobian()). For a
+            MultiCurve group, columns cover this curve's quotes first and
+            then other members in registration order. Group feedback is
+            included.
         */
         Matrix inverseJacobian(std::vector<bool>* analyticRows = nullptr) const;
         //@}
@@ -218,8 +197,7 @@ namespace QuantLib {
         // it would increase the complexity---which is high enough
         // already.
         friend class Bootstrap<this_curve>;
-        // grants CurveJacobianGraph the read access to the curve
-        // internals needed to assemble cross-curve Jacobians
+        // access needed for cross-curve Jacobians
         friend struct detail::BootstrapJacobianAccess<this_curve>;
         Bootstrap<this_curve> bootstrap_;
     };
@@ -274,17 +252,13 @@ namespace QuantLib {
         if constexpr (detail::hasJacobianGroup<bootstrap_type>) {
             auto group = bootstrap_.jacobianGroup();
             if (group.members.size() > 1) {
-                // curves outside the group are held fixed, except its
-                // known dependent curves (e.g. spreaded curves over a
-                // member), whose contributions fall back to numerical
-                // differentiation
+                // differentiate known dependent wrappers numerically
                 std::vector<Size> rowOffsets;
                 Matrix S = detail::groupNodeQuoteJacobian(
                     group.members, &rowOffsets, nullptr, analyticRows,
                     nullptr, &group.dependents,
                     /*unknownCurvesAreFixed=*/true);
-                // this curve is the first member of the group; its
-                // nodes are the first block of rows
+                // this curve occupies the first row block
                 Matrix result(rowOffsets[1], S.columns());
                 for (Size j = 0; j < result.rows(); ++j)
                     std::copy(S.row_begin(j), S.row_end(j), result.row_begin(j));

@@ -232,8 +232,7 @@ namespace QuantLib {
     QuoteSensitivities DepositRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr)
             return {};
-        // same dates as IborIndex::forecastFixing(fixingDate_),
-        // whose result is Q = (P1/P2-1)/tau
+        // IborIndex::forecastFixing gives Q = (P1/P2-1)/tau
         Date d1 = iborIndex_->valueDate(fixingDate_);
         Date d2 = iborIndex_->maturityDate(d1);
         Time tau = iborIndex_->dayCounter().yearFraction(d1, d2);
@@ -404,11 +403,11 @@ namespace QuantLib {
     QuoteSensitivities FraRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr)
             return {};
-        // in both branches of impliedQuote(), Q = (P1/P2-1)/tau
+        // both impliedQuote() branches use Q = (P1/P2-1)/tau
         Date d1, d2;
         Time tau;
         if (useIndexedCoupon_) {
-            // same dates as IborIndex::forecastFixing(fixingDate_)
+            // use IborIndex::forecastFixing dates
             d1 = iborIndex_->valueDate(fixingDate_);
             d2 = iborIndex_->maturityDate(d1);
             tau = iborIndex_->dayCounter().yearFraction(d1, d2);
@@ -703,8 +702,7 @@ namespace QuantLib {
     QuoteSensitivities SwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr || discountRelinkableHandle_.empty())
             return {};
-        // a custom coupon pricer might apply adjustments that the
-        // analytical formulas don't know about
+        // custom pricer adjustments are not covered
         if (couponPricer_ != nullptr)
             return {};
 

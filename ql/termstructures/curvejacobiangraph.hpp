@@ -34,38 +34,15 @@
 
 namespace QuantLib {
 
-    //! cross-curve Jacobians of a set of bootstrapped curves
-    /*! Given a set of bootstrapped curves depending on each other (for
-        instance, a projection curve built with an exogenous discount
-        curve, or a cross-currency curve built with exogenous collateral
-        and forecast curves, or co-dependent curves bootstrapped jointly
-        through MultiCurve), this class provides the Jacobians of the
-        helper quotes and curve nodes across the whole set, so that a
-        sensitivity with respect to the nodes of any curve can be
-        propagated back through the curve dependencies and expressed as
-        a sensitivity with respect to the quoted instruments of any
-        curve.
-
-        Rows and columns follow the order of the alive helpers and of
-        the curve nodes (excluding the value at the reference date,
-        which is not a free variable) as stored in each curve.
-
-        \par Example
-        \code
-        CurveJacobianGraph graph;
-        graph.add(discountCurve);   // e.g. OIS
-        graph.add(projectionCurve); // e.g. built with exogenous OIS discounting
-
-        // node risk of a trade, e.g. from bumping the curve nodes
-        std::map<const YieldTermStructure*, Array> nodeRisk = {
-            {projectionCurve.get(), dNPVdNodes}};
-        // quote risk on all registered curves
-        auto risk = graph.quoteRisk(nodeRisk);
-        \endcode
+    //! cross-curve Jacobians for bootstrapped curves
+    /*! Combines the bootstrap equations of registered curves, including
+        acyclic dependencies and curves bootstrapped jointly by MultiCurve.
+        Rows follow alive helpers and columns follow free curve nodes in
+        registration order.
     */
     class CurveJacobianGraph {
       public:
-        //! registers a curve; adding the same curve again replaces its entry
+        //! register or replace a curve
         template <class Curve>
         void add(const ext::shared_ptr<Curve>& curve) {
             detail::CurveJacobianNode n =
@@ -79,30 +56,17 @@ namespace QuantLib {
             nodes_.push_back(std::move(n));
         }
 
-        /*! Declares a curve that the helpers may reference to be
-            constant, i.e., independent of every registered curve.
-
-            Helpers referencing curves that are neither registered nor
-            declared constant have their rows computed by numerical
-            differentiation instead of the analytical formulas: such
-            curves might be functions of a registered curve (e.g. a
-            spreaded or implied term structure over it), which the
-            analytical shortcut would wrongly treat as fixed, while the
-            numerical fallback prices through them correctly.  Declaring
-            genuinely exogenous curves recovers the analytical rows.
+        /*! Mark an exogenous curve as independent of registered curves.
+            Undeclared references use numerical differentiation to preserve
+            dependencies through wrappers such as spreaded curves.
         */
         void addConstant(const ext::shared_ptr<const YieldTermStructure>& curve) {
             constants_.push_back(curve);
             constantIds_.insert(static_cast<const TermStructure*>(curve.get()));
         }
 
-        /*! Jacobian of the implied quotes of the first curve's helpers
-            with respect to the nodes of the second curve, all other
-            curves' nodes being kept fixed.  When the two curves
-            coincide, this is the curve's own Jacobian.  Rows that could
-            not be computed analytically fall back to numerical
-            differentiation; the flag vector, if given, reports which
-            rows were analytical.
+        /*! Partial Jacobian of the first curve's helper quotes with respect
+            to the second curve's nodes. Other curve nodes are fixed.
         */
         Matrix crossJacobian(const YieldTermStructure& of,
                              const YieldTermStructure& withRespectTo,
@@ -112,11 +76,8 @@ namespace QuantLib {
                                               analyticRows, &accounted);
         }
 
-        /*! Jacobian of the nodes of the first curve with respect to the
-            quotes of the second curve's helpers, obtained by solving
-            the differentiated bootstrap conditions of all registered
-            curves at once.  Co-dependent (cyclical) sets of curves are
-            handled naturally.
+        /*! Jacobian of the first curve's nodes with respect to the second
+            curve's helper quotes, including all registered dependencies.
         */
         Matrix nodeQuoteJacobian(const YieldTermStructure& of,
                                  const YieldTermStructure& withRespectTo) const {
@@ -133,12 +94,8 @@ namespace QuantLib {
             return block;
         }
 
-        /*! Propagates sensitivities with respect to curve nodes (for
-            instance, obtained by repricing a trade under bumps of the
-            node values) into sensitivities with respect to the helper
-            quotes of every registered curve.  The keys of the input map
-            must be registered curves; each array must have one entry
-            per curve node.
+        /*! Convert node risk to helper-quote risk for all registered curves.
+            Input keys must be registered and arrays must match node counts.
         */
         std::map<const YieldTermStructure*, Array>
         quoteRisk(const std::map<const YieldTermStructure*, Array>& nodeRisk) const {

@@ -42,19 +42,16 @@ namespace QuantLib {
 
     class TermStructure;
 
-    //! sensitivities of an implied quote to each referenced term structure
-    /*! For each term structure entering the pricing of a bootstrap
-        helper, the sensitivities of the implied quote to the values
-        queried from that term structure (discount factors, for yield
-        term structures) at the given dates.
+    //! per-curve sensitivities of an implied quote
+    /*! Values are sensitivities to the term-structure values queried at
+        the given dates. Yield-curve values are discount factors.
     */
     struct QuoteSensitivities {
-        //! whether the analytical formulas cover this helper at all
+        //! whether analytical sensitivities are available
         bool available = false;
         //! per-curve sensitivities \f$ (d, \partial Q/\partial P(d)) \f$
         std::map<const TermStructure*, std::vector<std::pair<Date, Real>>> sensitivities;
-        //! curves for which some contributions could not be computed;
-        //! their entries in the map above, if any, are incomplete
+        //! curves with incomplete contributions in the map
         std::set<const TermStructure*> incomplete;
     };
 
@@ -89,33 +86,22 @@ namespace QuantLib {
         const Handle<Quote>& quote() const { return quote_; }
         virtual Real impliedQuote() const = 0;
         Real quoteError() const { return quote_->value() - impliedQuote(); }
-        //! analytical sensitivities of the implied quote, per term structure
-        /*! Returns, for each term structure entering the pricing of
-            this helper (the curve being bootstrapped as well as any
-            exogenous discount or forecast curve), the sensitivities of
-            the implied quote to the values queried from it at the
-            given dates.  Term structures are identified by the raw
-            pointers obtained from the corresponding handles.  A
-            default-constructed result (the default) means that
-            analytical sensitivities are not available for this helper.
+        //! analytical sensitivities of the implied quote by term structure
+        /*! Term structures are identified by the pointers from their
+            handles. The default result means sensitivities are unavailable.
         */
         virtual QuoteSensitivities impliedQuoteSensitivitiesByCurve() const {
             return {};
         }
-        //! analytical sensitivities of the implied quote to the term structure
+        //! sensitivities to the curve being bootstrapped
         /*! Returns pairs \f$ (t, \partial Q / \partial v(t)) \f$ where
             \f$ Q \f$ is the implied quote and \f$ v(t) \f$ is the value
             queried from the term structure being bootstrapped at time t
             (measured with the term structure's day counter). For yield
             term structures \f$ v(t) \f$ is the discount factor at t.
-            An empty vector means that analytical sensitivities are not
-            available for this helper.
-            Users of this interface such as PiecewiseYieldCurve::jacobian() will
-            fall back to numerical differentiation in that case.
-
-            The default implementation extracts the sensitivities to the
-            term structure being bootstrapped from
-            impliedQuoteSensitivitiesByCurve().
+            An empty vector means sensitivities are unavailable and triggers
+            numerical differentiation. The default implementation extracts
+            the bootstrapped curve from impliedQuoteSensitivitiesByCurve().
         */
         virtual std::vector<std::pair<Time, Real>> impliedQuoteSensitivities() const {
             if (termStructure_ == nullptr)

@@ -39,8 +39,7 @@ namespace QuantLib {
 
     namespace detail {
 
-        // detection of the optional traits interface used for
-        // analytical Jacobians
+        // optional traits interface for analytical Jacobians
         template <class T, class Curve, class = void>
         constexpr bool hasSensitivityScale = false;
 
@@ -57,8 +56,8 @@ namespace QuantLib {
         constexpr bool hasFirstDataPointFlag<
             T, std::void_t<decltype(T::firstDataPointTracksSecond)>> = true;
 
-        //! type-erased view of a bootstrapped curve used to assemble
-        //! cross-curve Jacobians; a null curve means not available
+        //! type-erased bootstrapped curve used in cross-curve Jacobians
+        /*! A null curve means the interface is unavailable. */
         struct CurveJacobianNode {
             ext::shared_ptr<YieldTermStructure> curve;
             const TermStructure* id = nullptr;
@@ -73,21 +72,17 @@ namespace QuantLib {
             std::function<void(Size, Real)> setNodeValue;
         };
 
-        //! the members of a multi-curve group, and the curves known to
-        //! be functions of them without being system variables (e.g.
-        //! spreaded curves over a member)
+        //! system curves and known dependent wrappers in a multi-curve group
         struct CurveJacobianGroup {
             std::vector<CurveJacobianNode> members;
             std::set<const TermStructure*> dependents;
         };
 
-        // grants CurveJacobianGraph and GlobalBootstrap access to the
-        // curve internals needed to assemble cross-curve Jacobians
+        // access to curve internals needed for cross-curve Jacobians
         template <class Curve>
         struct BootstrapJacobianAccess;
 
-        // detection of bootstrap classes able to report the members of
-        // a multi-curve group
+        // bootstrap classes that expose a multi-curve group
         template <class B, class = void>
         constexpr bool hasJacobianGroup = false;
 
@@ -95,8 +90,7 @@ namespace QuantLib {
         constexpr bool hasJacobianGroup<
             B, std::void_t<decltype(std::declval<const B&>().jacobianGroup())>> = true;
 
-        // detection of curves supported by BootstrapJacobianAccess:
-        // bootstrapped yield curves providing the jacobian() interface
+        // bootstrapped yield curves exposing jacobian()
         template <class Curve, class = void>
         constexpr bool supportsCurveJacobianNode = false;
 
@@ -106,14 +100,9 @@ namespace QuantLib {
                 std::declval<std::vector<bool>*>()))>> =
             std::is_base_of_v<YieldTermStructure, Curve>;
 
-        /*! Converts sensitivities of a quantity to the curve values
-            \f$ v(t) \f$ (discount factors, for yield curves) into
-            sensitivities to the curve node values, filling one row of a
-            Jacobian.  Returns false when the analytical machinery does
-            not cover the curve (no traits support, node weights not
-            implemented for the interpolation, or times beyond the last
-            node, where the curve might extrapolate differently than the
-            interpolation does).
+        /*! Converts sensitivities to curve values \f$ v(t) \f$ into one
+            row of node sensitivities. Returns false if traits, interpolation,
+            or extrapolation are unsupported.
         */
         template <class Traits, class Curve>
         bool analyticNodeRow(const Curve* curve,
@@ -132,8 +121,7 @@ namespace QuantLib {
                 row.resize(times.size() - 1);
                 std::fill(row.begin(), row.end(), 0.0);
                 for (const auto& [t, dQdP] : sensitivities) {
-                    // beyond the last node the curve might extrapolate
-                    // differently than the interpolation does
+                    // curve extrapolation might differ from interpolation
                     if (t > tMax)
                         return false;
                     auto weights = interpolation.nodeWeights(t, true);
@@ -144,19 +132,16 @@ namespace QuantLib {
                         if (j > 0)
                             row[j-1] += dQdP * scale * w;
                         else if (firstTied)
-                            // data[0] is kept equal to data[1]
+                            // data[0] tracks data[1]
                             row[0] += dQdP * scale * w;
-                        // otherwise data[0] is fixed and
-                        // contributes nothing
+                        // otherwise data[0] is fixed
                     }
                 }
                 return true;
             }
         }
 
-        /*! Jacobian of the implied quotes of the given helpers with
-            respect to the curve node values.
-        */
+        //! Jacobian of helper quotes with respect to curve nodes
         template <class Traits, class Curve>
         Matrix bootstrapJacobian(
                  const Curve* curve,
@@ -168,7 +153,7 @@ namespace QuantLib {
                  std::vector<bool>* analyticRows,
                  bool numericalFallback = true) {
 
-            // alive helpers, in the order stored in the curve
+            // alive helpers in curve order
             Date firstDate = Traits::initialDate(curve);
             std::vector<ext::shared_ptr<typename Traits::helper>> alive;
             for (const auto& helper : instruments)
@@ -181,8 +166,7 @@ namespace QuantLib {
             std::vector<bool> analytic(rows, false);
 
             if constexpr (hasSensitivityScale<Traits, Curve>) {
-                // jumps are applied on top of the interpolated values,
-                // and the analytical machinery does not account for them
+                // analytical weights do not include jumps
                 if (!curveHasJumps) {
                     std::vector<Real> row(cols);
                     for (Size i = 0; i < rows; ++i) {
@@ -198,7 +182,7 @@ namespace QuantLib {
                 }
             }
 
-            // numerical fallback for the remaining rows, one column at a time
+            // differentiate remaining rows one column at a time
             std::vector<Size> numericalRows;
             if (numericalFallback)
                 for (Size i = 0; i < rows; ++i)
@@ -208,9 +192,8 @@ namespace QuantLib {
             if (!numericalRows.empty()) {
                 std::vector<Real> savedData = data;
 
-                // restore the data even when an evaluation throws;
-                // element-wise, because assigning the vector would
-                // invalidate the iterators stored in the interpolation
+                // restore element-wise to preserve interpolation iterators
+                // the guard also restores after an exception
                 struct RestoreData {  // NOLINT(cppcoreguidelines-special-member-functions)
                     std::vector<Real>& data;
                     const std::vector<Real>& saved;
@@ -247,7 +230,7 @@ namespace QuantLib {
             return J;
         }
 
-        //! inverts a curve Jacobian, checking that it is square
+        //! invert a square curve Jacobian
         inline Matrix inverseBootstrapJacobian(const Matrix& J) {
             QL_REQUIRE(J.rows() == J.columns(),
                        "cannot invert the Jacobian: the curve has " <<
@@ -284,8 +267,7 @@ namespace QuantLib {
                 n.analyticRow = [curve](const std::vector<std::pair<Date, Real>>& dateSens,
                                         std::vector<Real>& row) {
                     curve->calculate();
-                    // jumps are applied on top of the interpolated values,
-                    // and the analytical machinery does not account for them
+                    // analytical weights do not include jumps
                     if (!curve->jumpDates().empty())
                         return false;
                     std::vector<std::pair<Time, Real>> sensitivities;
@@ -301,8 +283,7 @@ namespace QuantLib {
                     return curve->data_[j];
                 };
                 n.setNodeValue = [curve](Size j, Real v) {
-                    // single-element writes: the iterators stored in the
-                    // interpolation stay valid
+                    // preserve interpolation iterators
                     Traits::updateGuess(curve->data_, v, j);
                     curve->interpolation_.update();
                 };
@@ -310,25 +291,13 @@ namespace QuantLib {
             }
         };
 
-        /*! Jacobian of the implied quotes of the first curve's helpers
-            with respect to the nodes of the second curve, all other
-            curves' nodes being kept fixed; the curves' own Jacobian
-            when they coincide.  Rows that cannot be computed
-            analytically fall back to numerical differentiation, bumping
-            the second curve's nodes directly so that no bootstrap is
-            triggered and the result remains a partial derivative.
+        /*! Partial Jacobian of the first curve's helper quotes with respect
+            to the second curve's nodes. Coincident curves use the own-curve
+            Jacobian. Unsupported rows are differentiated numerically.
 
-            A row can be computed analytically only when every curve the
-            helper references is accounted for: the curve being bumped,
-            one of the curves in fixedCurves (other system variables, or
-            curves known to be constant), or --- when
-            unknownCurvesAreFixed is true --- any curve not listed in
-            dependentCurves.  Rows referencing unaccounted curves fall
-            back to numerical differentiation, which remains correct
-            when those curves are functions of the bumped curve (e.g.
-            spreaded or implied term structures computing off it on
-            demand), while the analytical shortcut would wrongly treat
-            them as constants.
+            Analytical rows require every referenced curve to be accounted
+            for by fixedCurves or the unknownCurvesAreFixed policy. Known
+            dependent wrappers remain numerical.
         */
         inline Matrix curveCrossJacobian(const CurveJacobianNode& a,
                                          const CurveJacobianNode& b,
@@ -370,7 +339,7 @@ namespace QuantLib {
                     continue;
                 auto bucket = s.sensitivities.find(b.id);
                 if (bucket == s.sensitivities.end()) {
-                    // the helper does not depend on the curve
+                    // no direct dependence on this curve
                     analytic[i] = true;
                 } else if (b.analyticRow(bucket->second, row)) {
                     std::copy(row.begin(), row.end(), J.row_begin(i));
@@ -388,7 +357,7 @@ namespace QuantLib {
                     Real v = b.nodeValue(j);
                     Real h = 1.0e-6 * std::max(std::abs(v), 0.01);
 
-                    // restore the node even when an evaluation throws
+                    // restore the node after success or failure
                     struct RestoreNode {  // NOLINT(cppcoreguidelines-special-member-functions)
                         const CurveJacobianNode& b;
                         Size j;
@@ -412,25 +381,17 @@ namespace QuantLib {
             return J;
         }
 
-        /*! Sensitivities of the node values of all given curves with
-            respect to the quotes of all their helpers, obtained by
-            solving the differentiated bootstrap conditions
+        /*! Node sensitivities to all helper quotes, obtained by solving
+            the differentiated bootstrap conditions
 
               \f[ \sum_P J_{XP} \, dz_P = dq_X \f]
 
-            of the whole group at once; co-dependent (cyclical) groups
-            are handled naturally.  Rows follow the curve nodes and
-            columns the alive helpers, both grouped by curve in the
-            given order; the offsets of each curve's first row and
-            column are returned in the optional arguments, with a final
-            entry equal to the total size.  The optional flag vector
-            reports, for each quote of the group, whether all its blocks
-            were computed analytically.
+            for the whole group. Rows are nodes and columns are alive helpers,
+            both grouped in the given curve order. Optional offsets include a
+            final total. A quote is analytical only if all its blocks are.
 
-            The given curves are the system variables and are accounted
-            for automatically; the remaining arguments are forwarded to
-            curveCrossJacobian() and control how curves outside the
-            system are treated.
+            Group members are accounted for automatically. The remaining
+            arguments control curves outside the system.
         */
         inline Matrix groupNodeQuoteJacobian(const std::vector<CurveJacobianNode>& curves,
                                              std::vector<Size>* rowOffsets = nullptr,

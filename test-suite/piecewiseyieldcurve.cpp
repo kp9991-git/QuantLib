@@ -2479,15 +2479,12 @@ void checkJacobian(const ext::shared_ptr<Curve>& curve,
                         << " but was not");
     }
 
-    // Since the bootstrap enforces impliedQuote == quote, the Jacobian
-    // times the sensitivities of the nodes to the quotes (computed here
-    // by bump and re-bootstrap) must give the identity matrix.
+    // Bootstrap consistency requires J * dNodes/dQuotes = I
     Size rows = J.rows(), cols = J.columns();
     Matrix M(cols, rows);
     for (Size k = 0; k < rows; ++k) {
         Real q0 = quotes[k]->value();
-        // the bump must be large enough that the bootstrap accuracy
-        // doesn't pollute the finite differences
+        // keep the bump above bootstrap noise
         Real h = 1.0e-6;
         quotes[k]->setValue(q0 + h);
         std::vector<Real> up = curve->data();
@@ -2510,7 +2507,7 @@ void checkJacobian(const ext::shared_ptr<Curve>& curve,
         }
     }
 
-    // the inverse Jacobian must reproduce the node/quote sensitivities
+    // compare the inverse with bumped node sensitivities
     Matrix invJ = curve->inverseJacobian();
     for (Size j = 0; j < cols; ++j) {
         for (Size k = 0; k < rows; ++k) {
@@ -2536,7 +2533,7 @@ BOOST_AUTO_TEST_CASE(testJacobian) {
 
     CommonVars vars;
 
-    // analytical rows available for these combinations...
+    // supported analytical combinations
     checkJacobian<Discount, LogLinear>(vars, LogLinear(), true);
     checkJacobian<ZeroYield, Linear>(vars, Linear(), true);
     checkJacobian<ZeroYield, Cubic>(
@@ -2551,9 +2548,7 @@ BOOST_AUTO_TEST_CASE(testJacobian) {
                  CubicInterpolation::SecondDerivative, 0.0,
                  CubicInterpolation::SecondDerivative, 0.0),
         true);
-    // ...while these fall back to numerical differentiation (no traits
-    // support, no interpolation support, and the monotonicity filter,
-    // respectively)
+    // unsupported traits and interpolations use finite differences
     checkJacobian<ForwardRate, BackwardFlat>(vars, BackwardFlat(), false);
     checkJacobian<Discount, MonotonicLogCubic>(vars, MonotonicLogCubic(), false);
 }
@@ -2590,19 +2585,19 @@ BOOST_AUTO_TEST_CASE(testGlobalBootstrapWithJacobianOptimizer) {
 
     typedef PiecewiseYieldCurve<Discount, LogLinear, GlobalBootstrap> GBCurve;
 
-    // by default, the bootstrap uses finite differences as before...
+    // default finite-difference optimizer
     auto curveDefault = ext::make_shared<GBCurve>(
         vars.settlement, vars.instruments, Actual360());
     std::vector<Real> dataDefault = curveDefault->data();
 
-    // ...and must give the same results as an explicitly given optimizer
+    // explicit finite-difference optimizer
     auto plainOptimizer = ext::make_shared<LevenbergMarquardt>(1e-12, 1e-12, 1e-12);
     auto curvePlain = ext::make_shared<GBCurve>(
         vars.settlement, vars.instruments, Actual360(), LogLinear(),
         GlobalBootstrap<GBCurve>(Null<Real>(), plainOptimizer));
     std::vector<Real> dataPlain = curvePlain->data();
 
-    // opting into the analytical Jacobian must converge to the same nodes
+    // analytical and numerical optimizers must agree
     auto curveJacobian = ext::make_shared<GBCurve>(
         vars.settlement, vars.instruments, Actual360(), LogLinear(),
         GlobalBootstrap<GBCurve>(Null<Real>(), nullptr, nullptr, {}, nullptr,
@@ -2622,9 +2617,9 @@ BOOST_AUTO_TEST_CASE(testGlobalBootstrapWithJacobianOptimizer) {
                         << dataJacobian[j] << " vs " << dataDefault[j]);
     }
 
-    // opting in where the analytical Jacobian is not available throws
+    // unsupported analytical optimization throws
     typedef PiecewiseYieldCurve<ForwardRate, BackwardFlat, GlobalBootstrap> GBFwdCurve;
-    // complete the curve type before creating a bootstrap object for it
+    // complete the curve type before constructing its bootstrap
     (void)sizeof(GBFwdCurve);
     auto curveThrow = ext::make_shared<GBFwdCurve>(
         vars.settlement, vars.instruments, Actual360(), BackwardFlat(),
@@ -2636,7 +2631,7 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobian) {
 
     BOOST_TEST_MESSAGE("Testing cross-curve Jacobians...");
 
-    // discount curve: ESTR OIS
+    // ESTR discount curve
     std::vector<ext::shared_ptr<SimpleQuote>> oisQuotes;
     std::vector<ext::shared_ptr<RateHelper>> oisHelpers;
     auto estr = ext::make_shared<Estr>();
@@ -2651,7 +2646,7 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobian) {
     auto oisCurve = ext::make_shared<PiecewiseYieldCurve<Discount, LogLinear>>(
         0, TARGET(), oisHelpers, Actual360());
 
-    // projection curve: 6M deposit and swaps, discounted exogenously on OIS
+    // 6M projection curve discounted on OIS
     auto euribor6m = ext::make_shared<Euribor6M>();
     std::vector<ext::shared_ptr<SimpleQuote>> swapQuotes;
     std::vector<ext::shared_ptr<RateHelper>> swapHelpers;
@@ -2675,8 +2670,7 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobian) {
     graph.add(oisCurve);
     graph.add(projCurve);
 
-    // the cross block of the projection helpers vs the discount nodes
-    // must be analytical and non-trivial
+    // projection-helper sensitivity to discount nodes
     std::vector<bool> analytic;
     Matrix cross = graph.crossJacobian(*projCurve, *oisCurve, &analytic);
     bool nonZero = false;
@@ -2691,8 +2685,7 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobian) {
         BOOST_ERROR("cross-Jacobian of the projection helpers with respect "
                     "to the discount nodes is identically zero");
 
-    // bumping any quote and re-bootstrapping both curves must move the
-    // nodes as predicted by the composed Jacobians
+    // compare composed Jacobians with quote bumps
     Real h = 1.0e-6, tolerance = 1.0e-5;
     struct NamedCurve {
         std::string name;
@@ -2738,7 +2731,7 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobianThroughWrapper) {
     BOOST_TEST_MESSAGE("Testing cross-curve Jacobians through a wrapping "
                        "term structure...");
 
-    // discount curve: ESTR OIS
+    // ESTR discount curve
     std::vector<ext::shared_ptr<SimpleQuote>> oisQuotes;
     std::vector<ext::shared_ptr<RateHelper>> oisHelpers;
     auto estr = ext::make_shared<Estr>();
@@ -2753,10 +2746,7 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobianThroughWrapper) {
     auto oisCurve = ext::make_shared<PiecewiseYieldCurve<Discount, LogLinear>>(
         0, TARGET(), oisHelpers, Actual360());
 
-    // projection curve discounted on an unregistered spread over the
-    // OIS curve: the graph cannot treat the wrapper as constant, so
-    // the cross rows must fall back to numerical differentiation ---
-    // which prices through the wrapper and captures the dependency
+    // unregistered spread wrapper forces numerical cross rows
     auto wrapper = ext::make_shared<ZeroSpreadedTermStructure>(
         Handle<YieldTermStructure>(oisCurve), makeQuoteHandle(0.0010));
 
@@ -2788,8 +2778,7 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobianThroughWrapper) {
                         "back to numerical differentiation");
     }
 
-    // the composed sensitivities must capture the dependency through
-    // the wrapper
+    // composed sensitivities include the wrapper dependency
     Matrix S = graph.nodeQuoteJacobian(*projCurve, *oisCurve);
     Real h = 1.0e-6, tolerance = 1.0e-5;
     for (Size k = 0; k < oisQuotes.size(); ++k) {
@@ -2813,16 +2802,14 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobianThroughWrapper) {
 using CoDependentCurveType = PiecewiseYieldCurve<Discount, LogLinear, GlobalBootstrap>;
 
 struct CoDependentPair {
-    // the handles must outlive the curves
+    // handles outlive their curves
     RelinkableHandle<YieldTermStructure> int3m, int6m;
     std::vector<ext::shared_ptr<SimpleQuote>> quotes3m, quotes6m;
     ext::shared_ptr<CoDependentCurveType> curve3m, curve6m;
     ext::shared_ptr<MultiCurve> multiCurve;
 };
 
-// 3M curve: FRAs, then 3s6s basis swaps; 6M curve: 3s6s basis swaps,
-// then 6M swaps.  The two curves depend on each other and are
-// bootstrapped jointly.
+// Joint 3M and 6M curves built from FRAs, basis swaps, and swaps
 ext::shared_ptr<CoDependentPair>
 buildCoDependentPair(const Handle<YieldTermStructure>& discountCurve,
                      bool analyticJacobian) {
@@ -2899,9 +2886,7 @@ BOOST_AUTO_TEST_CASE(testCoDependentCurveJacobian) {
     auto& curve6m = pair->curve6m;
     using CurveType = CoDependentCurveType;
 
-    // inverseJacobian() of a group member spans the quotes of the whole
-    // group, own quotes first, and accounts for the feedback between
-    // the curves; check both curves against bump and joint re-bootstrap
+    // group inverse includes feedback and all member quotes
     struct Member {
         std::string name;
         ext::shared_ptr<CurveType> curve;
@@ -2953,8 +2938,7 @@ BOOST_AUTO_TEST_CASE(testMultiCurveWithJacobianOptimizer) {
     Handle<YieldTermStructure> discountCurve(
         ext::make_shared<FlatForward>(today, 0.02, Actual360()));
 
-    // opting into the analytical Jacobian must converge to the same
-    // nodes as the default finite-difference optimization
+    // analytical and numerical joint optimizers must agree
     auto pairDefault = buildCoDependentPair(discountCurve, false);
     auto pairAnalytic = buildCoDependentPair(discountCurve, true);
 

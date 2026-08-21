@@ -70,11 +70,10 @@ namespace QuantLib {
             virtual Real primitive(Real) const = 0;
             virtual Real derivative(Real) const = 0;
             virtual Real secondDerivative(Real) const = 0;
-            //! sensitivities of the value at x to the node values
+            //! sensitivities at x to the node values
             /*! Returns pairs \f$ (j, \partial f(x) / \partial y_j) \f$
-                for the nodes the value at x depends upon.  An empty
-                vector (the default) means that node sensitivities are
-                not implemented for this interpolation.
+                for the nodes affecting x. An empty vector means the
+                interpolation does not provide node sensitivities.
             */
             virtual std::vector<std::pair<Size, Real>> nodeWeights(Real) const {
                 return {};
@@ -145,14 +144,12 @@ namespace QuantLib {
             checkRange(x,allowExtrapolation);
             return impl_->secondDerivative(x);
         }
-        //! sensitivities of the value at x to the node values
+        //! sensitivities at x to the node values
         /*! Returns pairs \f$ (j, \partial f(x) / \partial y_j) \f$ for
-            the nodes the value at x depends upon; an empty vector means
-            that node sensitivities are not implemented for this
-            interpolation.  Outside the given range, the returned
-            weights refer to the interpolant's own extension, which
-            might differ from the extrapolation performed by classes
-            using the interpolation.
+            the nodes affecting x. An empty vector means they are not
+            implemented. Outside the range, weights describe the
+            interpolant's extension, which might differ from a caller's
+            extrapolation.
         */
         std::vector<std::pair<Size, Real>>
         nodeWeights(Real x, bool allowExtrapolation = false) const {

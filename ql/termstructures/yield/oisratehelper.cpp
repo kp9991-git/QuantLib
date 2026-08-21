@@ -235,10 +235,8 @@ namespace QuantLib {
     QuoteSensitivities OISRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr || discountRelinkableHandle_.empty())
             return {};
-        // a custom coupon pricer might apply adjustments that the
-        // analytical formulas don't know about; other unsupported
-        // features (arithmetic averaging, lookback, lockout,
-        // observation shift) are detected at the coupon level
+        // custom pricer adjustments are not covered
+        // coupon-level checks handle other unsupported features
         if (pricer_ != nullptr)
             return {};
 

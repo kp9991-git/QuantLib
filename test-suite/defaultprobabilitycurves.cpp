@@ -565,9 +565,7 @@ BOOST_AUTO_TEST_CASE(testJacobian) {
         if (analytic[i])
             BOOST_ERROR("row " << i << " was unexpectedly computed analytically");
 
-    // Since the bootstrap enforces impliedQuote == quote, the Jacobian
-    // times the sensitivities of the nodes to the quotes (computed here
-    // by bump and re-bootstrap) must give the identity matrix.
+    // Bootstrap consistency requires J * dNodes/dQuotes = I
     Size rows = J.rows(), cols = J.columns();
     Matrix M(cols, rows);
     for (Size k = 0; k < rows; ++k) {
@@ -595,7 +593,7 @@ BOOST_AUTO_TEST_CASE(testJacobian) {
         }
     }
 
-    // the inverse Jacobian must reproduce the node/quote sensitivities
+    // compare the inverse with bumped node sensitivities
     Matrix invJ = curve->inverseJacobian();
     for (Size j = 0; j < cols; ++j) {
         for (Size k = 0; k < rows; ++k) {

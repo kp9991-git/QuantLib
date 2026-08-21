@@ -131,8 +131,7 @@ namespace QuantLib {
     IborIborBasisSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr || discountHandle_.empty())
             return {};
-        // the discount curve is always exogenous; the bootstrapped
-        // curve forecasts one of the two legs
+        // the bootstrapped curve forecasts one leg only
         return detail::fairBasisSensitivities(
             swap_->leg(0), swap_->leg(1), **discountHandle_);
     }

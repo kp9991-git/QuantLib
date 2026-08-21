@@ -141,10 +141,10 @@ namespace QuantLib {
 
         template <class C>
         static Real sensitivityScale(Time, const C*) {
-            // the curve data are the discount factors themselves
+            // curve data are discount factors
             return 1.0;
         }
-        // whether updateGuess ties data[0] to data[1]
+        // updateGuess leaves data[0] fixed
         static constexpr bool firstDataPointTracksSecond = false;
     };
 
@@ -240,7 +240,7 @@ namespace QuantLib {
 
         template <class C>
         static Real sensitivityScale(Time t, const C* c) {
-            // P(t) = exp(-z(t)*t), z interpolated
+            // P(t) = exp(-z(t)*t) with interpolated z
             return -t * c->discount(t, true);
         }
         static constexpr bool firstDataPointTracksSecond = true;
@@ -443,7 +443,7 @@ namespace QuantLib {
 
         template <class C>
         static Real sensitivityScale(Time t, const C* c) {
-            // P(t) = 1/(1+z(t)*t), z interpolated with simple compounding
+            // P(t) = 1/(1+z(t)*t) with interpolated z
             DiscountFactor d = c->discount(t, true);
             return -t * d * d;
         }

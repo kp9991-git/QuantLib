@@ -107,8 +107,7 @@ namespace QuantLib {
         auto& own = result.sensitivities[termStructure_];
         switch (future_->averagingMethod()) {
           case RateAveraging::Compound: {
-            // mirroring OvernightIndexFuture::compoundedRate(), whose
-            // forward part telescopes to P(start)/P(maturity)
+            // compoundedRate() telescopes to P(start)/P(maturity)
             Date start = valueDate;
             if (today > valueDate) {
                 start = calendar.adjust(today);
@@ -116,12 +115,12 @@ namespace QuantLib {
                     start = std::min(calendar.advance(start, 1, Days), maturityDate);
             }
             if (start >= maturityDate) {
-                // the rate is fully determined by past fixings
+                // fully fixed
                 own.emplace_back(maturityDate, 0.0);
                 break;
             }
 
-            // NPV = 100*(1 - adj - rate), rate = (prod-1)/tauRef,
+            // NPV = 100*(1-adj-rate), rate = (prod-1)/tauRef
             // prod = C_past * P(start)/P(maturity)
             Real rate = 1.0 - impliedQuote()/100.0 - future_->convexityAdjustment();
             Real prod = rate*tauRef + 1.0;
@@ -132,8 +131,7 @@ namespace QuantLib {
             break;
           }
           case RateAveraging::Simple: {
-            // mirroring OvernightIndexFuture::averagedRate(): each future
-            // fixing contributes a simple forward over its own period
+            // averagedRate() uses one simple forward per future fixing
             Date d1 = valueDate;
             Date fixingDate = calendar.adjust(d1, Preceding);
             while (d1 < maturityDate) {
@@ -152,7 +150,7 @@ namespace QuantLib {
                 fixingDate = d1 = d2;
             }
             if (own.empty())
-                // the rate is fully determined by past fixings
+                // fully fixed
                 own.emplace_back(maturityDate, 0.0);
             break;
           }

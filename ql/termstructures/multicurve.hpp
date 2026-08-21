@@ -83,10 +83,8 @@ namespace QuantLib {
 #endif
     {
       public:
-        /*! The analyticJacobian flag makes the joint optimization use
-            the analytical Jacobian of the stacked cost function; when
-            set, all member curves must support the analytical machinery
-            or an exception is thrown.
+        /*! analyticJacobian enables the stacked analytical Jacobian.
+            All member curves must support it.
         */
         explicit MultiCurve(Real accuracy, bool analyticJacobian = false);
         explicit MultiCurve(const ext::shared_ptr<OptimizationMethod>& optimizer = nullptr,

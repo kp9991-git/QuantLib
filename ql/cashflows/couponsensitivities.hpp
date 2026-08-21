@@ -18,8 +18,7 @@
 */
 
 /*! \file couponsensitivities.hpp
-    \brief analytical sensitivities of coupon amounts and fair rates,
-           used by the rate helpers to provide analytical Jacobians
+    \brief coupon and fair-rate sensitivities for analytical Jacobians
 */
 
 #ifndef quantlib_coupon_sensitivities_hpp
@@ -39,32 +38,27 @@ namespace QuantLib {
 
     namespace detail {
 
-        //! analytical sensitivity analysis of a single coupon
+        //! analytical data for one coupon
         struct CouponSensitivityAnalysis {
             bool supported = false;
             //! nominal times accrual period
             Real ntau = 0.0;
-            //! coupon amount, consistent with the pricing engines
+            //! coupon amount
             Real amount = 0.0;
-            //! the coupon's forecast curve, when the coupon has one
-            //! that could be identified
+            //! identified forecast curve, if any
             const YieldTermStructure* forecastCurve = nullptr;
             //! derivative of the amount with respect to the discount
             //! factors of the coupon's forecast curve at the given dates
             std::vector<std::pair<Date, Real>> amountSensitivities;
         };
 
-        /*! Analyzes fixed-rate coupons, vanilla ibor coupons, and
-            compounded overnight coupons.  Other cash-flow types, or
-            coupons with features not covered by the analytical formulas
-            (in-arrears fixings, daily compounded spreads, lookback,
-            lockout, observation shift, arithmetic averaging) are
-            flagged as not supported.
+        /*! Supports fixed, vanilla ibor, and compounded overnight coupons.
+            Other types and unsupported features return supported=false.
         */
         CouponSensitivityAnalysis analyzeCoupon(const ext::shared_ptr<CashFlow>& cf,
                                                 bool withSensitivities);
 
-        //! analysis of a single floating coupon, discounted on a given curve
+        //! discounted data for one floating cash flow
         struct FloatingFlowData {
             Date payDate;
             Real ntau, amount;
@@ -73,12 +67,9 @@ namespace QuantLib {
             std::vector<std::pair<Date, Real>> sensitivities;
         };
 
-        /*! Analyzes the coupons of a floating leg, trying the full
-            analytical formulas first and falling back to pricing by
-            amount() when they don't apply; in the latter case the
-            coupon's forecast curve is added to the incomplete set of
-            the given result.  Returns false when the leg can't be
-            analyzed at all.
+        /*! Analyzes a floating leg. Unsupported formulas fall back to
+            amount() and mark the forecast curve as incomplete. Returns
+            false if the cash flow cannot be priced or its curve identified.
         */
         bool analyzeFloatingLeg(const Leg& leg,
                                 const Date& settlement,
@@ -87,14 +78,8 @@ namespace QuantLib {
                                 QuoteSensitivities& result,
                                 std::optional<bool> includeSettlementDateFlows = std::nullopt);
 
-        /*! Sensitivities of the fair fixed rate of a fixed-vs-floating
-            swap (plus a spread quoted on the floating leg) to the
-            discount factors of every curve entering the pricing: the
-            given discount curve and the forecast curves of the
-            floating-leg coupons.  Floating coupons not supported by the
-            analytical formulas are priced by amount() and their
-            forecast curves are reported as incomplete; if that fails
-            too, the whole result is flagged as unavailable.
+        /*! Per-curve sensitivities of a fixed-vs-floating fair rate,
+            including any spread on the floating leg.
         */
         QuoteSensitivities
         fairRateSensitivities(const Leg& fixedLeg,
@@ -102,15 +87,8 @@ namespace QuantLib {
                               Spread helperSpread,
                               const YieldTermStructure& discountCurve);
 
-        /*! Sensitivities of the fair basis of a floating-vs-floating
-            swap paying baseLeg + basis and receiving otherLeg, i.e., of
-            \f$ b = (O - B)/A \f$ with O and B the leg NPVs and A the
-            base-leg annuity, to the discount factors of every curve
-            entering the pricing: the given discount curve and the
-            forecast curves of the coupons on both legs.  Coupons not
-            supported by the analytical formulas are priced by amount()
-            and their forecast curves are reported as incomplete; if
-            that fails too, the whole result is flagged as unavailable.
+        /*! Per-curve sensitivities of the fair basis
+            \f$ b=(O-B)/A \f$ of a floating-vs-floating swap.
         */
         QuoteSensitivities
         fairBasisSensitivities(const Leg& baseLeg,
