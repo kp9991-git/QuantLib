@@ -565,10 +565,10 @@ namespace QuantLib {
                 addResetSensitivities(coupon->fxReset(), r,
                                       notionalAccrual, d.ntauSensitivities);
                 // underlying coupon forecast sensitivity
-                for (const auto& [date, w] : ua.amountSensitivities)
+                for (const auto& sensitivity : ua.amountSensitivities)
                     d.amountSensitivities.push_back(
-                        {static_cast<const TermStructure*>(ua.forecastCurve),
-                         date, underlyingScale*r.rate*w});
+                        {sensitivity.curve, sensitivity.date,
+                         underlyingScale*r.rate*sensitivity.derivative});
                 return detail::FlowHandling::Analyzed;
             }
             if (auto exchange = ext::dynamic_pointer_cast<FxResetNotionalExchange>(cf)) {

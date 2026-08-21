@@ -1368,6 +1368,91 @@ BOOST_AUTO_TEST_CASE(testResettingBasisSwapsWithInterpolatedStubIndex) {
     }
 }
 
+BOOST_AUTO_TEST_CASE(testResettingBasisSwapStubIndexSensitivities) {
+    BOOST_TEST_MESSAGE(
+        "Testing analytical MtM cross-currency stub-index sensitivities...");
+
+    SavedSettings backup;
+    Date today(27, May, 2026);
+    Settings::instance().evaluationDate() = today;
+    Calendar calendar = NewZealand();
+    DayCounter dayCount = Actual365Fixed();
+
+    auto shortRate = ext::make_shared<SimpleQuote>(0.02);
+    auto longRate = ext::make_shared<SimpleQuote>(0.04);
+    auto shortCurve = flatRate(today, shortRate, dayCount);
+    auto longCurve = flatRate(today, longRate, dayCount);
+    Handle<YieldTermStructure> shortHandle(shortCurve), longHandle(longCurve);
+    auto bkbm2m = ext::make_shared<Bkbm2M>(shortHandle);
+    auto bkbm3m = ext::make_shared<Bkbm3M>(longHandle);
+    StubIndexConfig config{
+        StubIndexConvention::Interpolated, {bkbm2m, bkbm3m}};
+
+    Handle<YieldTermStructure> collateralCurve(
+        flatRate(today, 0.015, Actual360()));
+    auto sofr = ext::make_shared<Sofr>(collateralCurve);
+    auto bootstrappedCurve = flatRate(today, 0.025, dayCount);
+
+    for (bool resettable : {false, true}) {
+        auto helper = ext::make_shared<MtMCrossCurrencyBasisSwapRateHelper>(
+            makeQuoteHandle(-7e-4), 9 * Months, 2, calendar,
+            ModifiedFollowing, false, bkbm3m, sofr, collateralCurve,
+            false, true, resettable, Quarterly, 0, Quarterly, 0, Calendar(),
+            true, config);
+        ext::static_pointer_cast<RateHelper>(helper)->setTermStructure(
+            bootstrappedCurve.get());
+
+        auto stub = ext::dynamic_pointer_cast<StubIborCoupon>(
+            firstIborCoupon(helper->swap()->legs()[0]));
+        BOOST_REQUIRE(stub);
+
+        QuoteSensitivities sensitivities =
+            helper->impliedQuoteSensitivitiesByCurve();
+        BOOST_REQUIRE(sensitivities.available);
+        BOOST_CHECK(sensitivities.incomplete.empty());
+
+        auto checkCurve = [&](const ext::shared_ptr<SimpleQuote>& rate,
+                              const ext::shared_ptr<YieldTermStructure>& curve,
+                              const char* name) {
+            const auto* curveKey =
+                static_cast<const TermStructure*>(curve.get());
+            auto entries = sensitivities.sensitivities.find(curveKey);
+            BOOST_REQUIRE_MESSAGE(
+                entries != sensitivities.sensitivities.end(),
+                "missing sensitivities for the " << name << " stub curve");
+
+            Real r0 = rate->value(), h = 1.0e-6;
+            rate->setValue(r0 + h);
+            Real quoteUp = helper->impliedQuote();
+            std::vector<DiscountFactor> discountUp;
+            for (const auto& entry : entries->second)
+                discountUp.push_back(curve->discount(entry.first));
+
+            rate->setValue(r0 - h);
+            Real quoteDown = helper->impliedQuote();
+            std::vector<DiscountFactor> discountDown;
+            for (const auto& entry : entries->second)
+                discountDown.push_back(curve->discount(entry.first));
+
+            rate->setValue(r0);
+            helper->impliedQuote();
+
+            Real predicted = 0.0;
+            for (Size i = 0; i < entries->second.size(); ++i)
+                predicted += entries->second[i].second *
+                             (discountUp[i] - discountDown[i])/(2.0*h);
+            Real numerical = (quoteUp - quoteDown)/(2.0*h);
+            if (std::fabs(predicted - numerical) > 1.0e-8)
+                BOOST_ERROR(name << " stub-curve sensitivity is " << predicted
+                           << ", but finite differences give " << numerical
+                           << " (resettable = " << resettable << ")");
+        };
+
+        checkCurve(shortRate, shortCurve, "short");
+        checkCurve(longRate, longCurve, "long");
+    }
+}
+
 BOOST_AUTO_TEST_CASE(testConstNotionalBasisSwapsWithInterpolatedStubIndex) {
     BOOST_TEST_MESSAGE(
         "Testing const-notional cross-currency bootstrap with an interpolated stub-index coupon...");

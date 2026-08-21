@@ -663,6 +663,84 @@ BOOST_AUTO_TEST_CASE(testOvernightIborStubIndexBootstrap) {
         Error);
 }
 
+BOOST_AUTO_TEST_CASE(testOvernightIborStubIndexSensitivities) {
+    BOOST_TEST_MESSAGE(
+        "Testing analytical sensitivities of an interpolated stub-index coupon...");
+
+    SavedSettings backup;
+    Date today(27, May, 2026);
+    Settings::instance().evaluationDate() = today;
+    Calendar calendar = NewZealand();
+    DayCounter dayCount = Actual365Fixed();
+
+    auto shortRate = ext::make_shared<SimpleQuote>(0.02);
+    auto longRate = ext::make_shared<SimpleQuote>(0.04);
+    auto shortCurve = flatRate(today, shortRate, dayCount);
+    auto longCurve = flatRate(today, longRate, dayCount);
+    Handle<YieldTermStructure> shortHandle(shortCurve), longHandle(longCurve);
+    auto bkbm1m = ext::make_shared<Bkbm1M>(shortHandle);
+    auto bkbm3m = ext::make_shared<Bkbm3M>(longHandle);
+    StubIndexConfig config{
+        StubIndexConvention::Interpolated, {bkbm1m, bkbm3m}};
+
+    auto overnight = ext::make_shared<OvernightIndex>(
+        "Nzionia", 0, NZDCurrency(), calendar, dayCount);
+    Handle<YieldTermStructure> discountCurve(flatRate(today, 0.03, dayCount));
+    auto helper = ext::make_shared<OvernightIborBasisSwapRateHelper>(
+        makeQuoteHandle(12e-4), 8 * Months, 0, calendar, ModifiedFollowing,
+        false, overnight, bkbm3m, discountCurve,
+        true, 0, std::nullopt, true, DateGeneration::Backward,
+        RateAveraging::Compound, false, false, config);
+    auto bootstrappedCurve = flatRate(today, 0.025, dayCount);
+    ext::static_pointer_cast<RateHelper>(helper)->setTermStructure(
+        bootstrappedCurve.get());
+
+    auto stub = ext::dynamic_pointer_cast<StubIborCoupon>(
+        helper->swap()->leg(1).front());
+    BOOST_REQUIRE(stub);
+
+    QuoteSensitivities sensitivities = helper->impliedQuoteSensitivitiesByCurve();
+    BOOST_REQUIRE(sensitivities.available);
+    BOOST_CHECK(sensitivities.incomplete.empty());
+
+    auto checkCurve = [&](const ext::shared_ptr<SimpleQuote>& rate,
+                          const ext::shared_ptr<YieldTermStructure>& curve,
+                          const char* name) {
+        const auto* curveKey = static_cast<const TermStructure*>(curve.get());
+        auto entries = sensitivities.sensitivities.find(curveKey);
+        BOOST_REQUIRE_MESSAGE(entries != sensitivities.sensitivities.end(),
+                              "missing sensitivities for the " << name << " stub curve");
+
+        Real r0 = rate->value(), h = 1.0e-6;
+        rate->setValue(r0 + h);
+        Real quoteUp = helper->impliedQuote();
+        std::vector<DiscountFactor> discountUp;
+        for (const auto& entry : entries->second)
+            discountUp.push_back(curve->discount(entry.first));
+
+        rate->setValue(r0 - h);
+        Real quoteDown = helper->impliedQuote();
+        std::vector<DiscountFactor> discountDown;
+        for (const auto& entry : entries->second)
+            discountDown.push_back(curve->discount(entry.first));
+
+        rate->setValue(r0);
+        helper->impliedQuote();
+
+        Real predicted = 0.0;
+        for (Size i = 0; i < entries->second.size(); ++i)
+            predicted += entries->second[i].second *
+                         (discountUp[i] - discountDown[i])/(2.0*h);
+        Real numerical = (quoteUp - quoteDown)/(2.0*h);
+        if (std::fabs(predicted - numerical) > 1.0e-8)
+            BOOST_ERROR(name << " stub-curve sensitivity is " << predicted
+                       << ", but finite differences give " << numerical);
+    };
+
+    checkCurve(shortRate, shortCurve, "short");
+    checkCurve(longRate, longCurve, "long");
+}
+
 BOOST_AUTO_TEST_CASE(testIborIborStubIndexBootstrap) {
     BOOST_TEST_MESSAGE(
         "Testing ibor-ibor bootstrap with an interpolated stub on the exogenous leg...");
@@ -1021,7 +1099,7 @@ BOOST_AUTO_TEST_CASE(testOvernightIborMarginOnIborLegJacobian) {
                 Handle<Quote>(q), years * Years, settlementDays, calendar, Following,
                 false, baseIndex, otherIndex, discountCurve, false, /*paymentLag=*/2,
                 Annual, std::nullopt, DateGeneration::Backward,
-                RateAveraging::Compound, false, StubIndexConfig{}, basisOnIborLeg));
+                RateAveraging::Compound, false, basisOnIborLeg, StubIndexConfig{}));
         }
         auto curve = ext::make_shared<PiecewiseYieldCurve<Discount, LogLinear>>(
             0, calendar, helpers, Actual365Fixed());

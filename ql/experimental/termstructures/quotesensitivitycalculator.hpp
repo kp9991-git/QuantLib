@@ -62,14 +62,15 @@ namespace QuantLib {
             Real ntau = 0.0;
             //! coupon amount
             Real amount = 0.0;
-            //! forecast curve, if any
+            //! single forecast curve used by unsupported-coupon fallback
             const YieldTermStructure* forecastCurve = nullptr;
             //! amount derivatives with respect to forecast discount factors
-            std::vector<std::pair<Date, Real>> amountSensitivities;
+            TaggedSensitivities amountSensitivities;
         };
 
-        /*! Analyzes fixed, vanilla Ibor, and compounded overnight coupons.
-            Unsupported cases return supported=false. */
+        /*! Analyzes fixed, Ibor (including weighted-index stubs), and
+            compounded overnight coupons. Unsupported cases return
+            supported=false. */
         CouponSensitivityAnalysis analyzeCoupon(const ext::shared_ptr<CashFlow>& cf,
                                                 bool withSensitivities);
 
