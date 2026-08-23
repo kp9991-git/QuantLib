@@ -3003,6 +3003,22 @@ BOOST_AUTO_TEST_CASE(testFlatExtrapolation) {
 
     f.enableExtrapolation();
 
+    // Node sensitivities follow the clamped interpolation value.
+    auto lowerWeights = f.nodeWeights(-1.0);
+    auto upperWeights = f.nodeWeights(5.0);
+    BOOST_REQUIRE_EQUAL(lowerWeights.size(), N);
+    BOOST_REQUIRE_EQUAL(upperWeights.size(), N);
+    for (Size i = 0; i < N; ++i) {
+        BOOST_CHECK_SMALL(lowerWeights[i].second-(i == 0 ? 1.0 : 0.0),
+                          tolerance);
+        BOOST_CHECK_SMALL(upperWeights[i].second-(i == N-1 ? 1.0 : 0.0),
+                          tolerance);
+    }
+    auto flatSlopeWeights = f.derivativeNodeWeights(5.0);
+    BOOST_REQUIRE(!flatSlopeWeights.empty());
+    for (const auto& [i, w] : flatSlopeWeights)
+        BOOST_CHECK_SMALL(w, tolerance);
+
     // in-range: must match underlying cubic at knots
     for (Size i = 0; i < N; ++i) {
         Real calculated = f(x[i]);

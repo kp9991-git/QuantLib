@@ -50,6 +50,16 @@ namespace QuantLib {
             std::void_t<decltype(T::sensitivityScale(
                 Time(), std::declval<const Curve*>()))>> = true;
 
+        template <class T, class Curve, class = void>
+        constexpr bool hasExtrapolationNodeWeights = false;
+
+        template <class T, class Curve>
+        constexpr bool hasExtrapolationNodeWeights<
+            T, Curve,
+            std::void_t<decltype(T::extrapolationNodeWeights(
+                Time(), std::declval<const Curve*>(),
+                std::declval<const Interpolation&>()))>> = true;
+
         template <class T, class = void>
         constexpr bool hasFirstDataPointFlag = false;
 
@@ -144,10 +154,18 @@ namespace QuantLib {
                 row.resize(times.size() - 1);
                 std::fill(row.begin(), row.end(), 0.0);
                 for (const auto& [t, dQdP] : sensitivities) {
-                    // curve extrapolation might differ from interpolation
-                    if (t > tMax)
+                    std::vector<std::pair<Size, Real>> weights;
+                    if (t <= tMax) {
+                        weights = interpolation.nodeWeights(t, true);
+                    } else if constexpr (
+                                   hasExtrapolationNodeWeights<Traits, Curve>) {
+                        // Yield curves can use a tail formula different from
+                        // their interpolation's own extrapolation.
+                        weights = Traits::extrapolationNodeWeights(
+                            t, curve, interpolation);
+                    } else {
                         return false;
-                    auto weights = interpolation.nodeWeights(t, true);
+                    }
                     if (weights.empty())
                         return false;
                     Real scale = Traits::sensitivityScale(t, curve);
