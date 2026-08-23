@@ -342,6 +342,7 @@ namespace QuantLib {
                 };
                 n.setNodeValue = [curve](Size j, Real v) {
                     // preserve interpolation iterators
+                    curve->jacobianCacheValid_ = false;
                     Traits::updateGuess(curve->data_, v, j);
                     curve->interpolation_.update();
                 };

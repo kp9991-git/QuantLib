@@ -226,8 +226,8 @@ namespace QuantLib {
 
       private:
         void addDerivedCurve(
-                const ext::shared_ptr<const YieldTermStructure>& curve,
-                const ext::shared_ptr<const YieldTermStructure>& dependency) {
+                const ext::shared_ptr<YieldTermStructure>& curve,
+                const ext::shared_ptr<YieldTermStructure>& dependency) {
             QL_REQUIRE(dependency, "null base curve of derived curve");
             QL_REQUIRE(dependency.get() != curve.get(),
                        "a derived curve cannot depend on itself");
