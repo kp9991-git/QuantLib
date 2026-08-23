@@ -822,6 +822,28 @@ namespace QuantLib {
                 }
                 return weights;
             }
+            std::vector<std::pair<Size, Real>>
+            derivativeNodeWeights(Real x) const override {
+                // Only these unfiltered schemes are affine in the nodes.
+                if (monotonic_ ||
+                    (da_ != CubicInterpolation::Spline &&
+                     da_ != CubicInterpolation::Parabolic))
+                    return {};
+
+                std::vector<std::pair<Size, Real>> weights;
+                weights.reserve(n_);
+                std::vector<Real> unit(n_, 0.0);
+                for (Size j=0; j<n_; ++j) {
+                    unit[j] = 1.0;
+                    CubicInterpolation basis(this->xBegin_, this->xEnd_,
+                                             unit.begin(), da_, false,
+                                             leftType_, 0.0,
+                                             rightType_, 0.0);
+                    weights.emplace_back(j, basis.derivative(x, true));
+                    unit[j] = 0.0;
+                }
+                return weights;
+            }
 
           private:
             Size n_;

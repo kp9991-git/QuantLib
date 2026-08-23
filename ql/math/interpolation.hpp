@@ -78,6 +78,15 @@ namespace QuantLib {
             virtual std::vector<std::pair<Size, Real>> nodeWeights(Real) const {
                 return {};
             }
+            //! sensitivities of the derivative at x to the node values
+            /*! Returns pairs \f$ (j, \partial f'(x) / \partial y_j) \f$
+                for the nodes affecting x. An empty vector means the
+                interpolation does not provide derivative sensitivities.
+            */
+            virtual std::vector<std::pair<Size, Real>>
+            derivativeNodeWeights(Real) const {
+                return {};
+            }
         };
         //! basic template implementation
         template <class I1, class I2, class Base=Impl>
@@ -155,6 +164,17 @@ namespace QuantLib {
         nodeWeights(Real x, bool allowExtrapolation = false) const {
             checkRange(x,allowExtrapolation);
             return impl_->nodeWeights(x);
+        }
+        //! sensitivities of the derivative at x to the node values
+        /*! Returns pairs \f$ (j, \partial f'(x) / \partial y_j) \f$ for
+            the nodes affecting x. An empty vector means they are not
+            implemented. Outside the range, weights describe the
+            extrapolation.
+        */
+        std::vector<std::pair<Size, Real>>
+        derivativeNodeWeights(Real x, bool allowExtrapolation = false) const {
+            checkRange(x,allowExtrapolation);
+            return impl_->derivativeNodeWeights(x);
         }
         Real xMin() const {
             return impl_->xMin();

@@ -2773,6 +2773,251 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobian) {
     }
 }
 
+BOOST_AUTO_TEST_CASE(testCrossCurveJacobianWithLogLinearExtrapolation) {
+
+    BOOST_TEST_MESSAGE("Testing cross-curve Jacobians with log-linear "
+                       "discount extrapolation...");
+
+    CommonVars vars(Date(23, Oct, 2025));
+
+    // End the discount curve before the dependent helper.  Its final cash
+    // flows therefore use InterpolatedDiscountCurve's flat-forward
+    // extrapolation.
+    std::vector<ext::shared_ptr<SimpleQuote>> discountQuotes;
+    std::vector<ext::shared_ptr<RateHelper>> discountHelpers;
+    auto estr = ext::make_shared<Estr>();
+    for (auto& [years, r] : std::vector<std::pair<Integer, Rate>>{
+             {1, 0.0210}, {5, 0.0250}, {9, 0.0275}}) {
+        auto q = ext::make_shared<SimpleQuote>(r);
+        discountQuotes.push_back(q);
+        discountHelpers.push_back(ext::make_shared<OISRateHelper>(
+            2, years * Years, Handle<Quote>(q), estr));
+    }
+    auto discountCurve =
+        ext::make_shared<PiecewiseYieldCurve<Discount, LogLinear>>(
+            0, TARGET(), discountHelpers, Actual360());
+    discountCurve->enableExtrapolation();
+
+    auto euribor6m = ext::make_shared<Euribor6M>();
+    auto projectionQuote = ext::make_shared<SimpleQuote>(0.0280);
+    std::vector<ext::shared_ptr<RateHelper>> projectionHelpers = {
+        ext::make_shared<SwapRateHelper>(
+            Handle<Quote>(projectionQuote), 10 * Years, TARGET(), Annual,
+            Unadjusted, Thirty360(Thirty360::BondBasis), euribor6m,
+            Handle<Quote>(), 0 * Days,
+            Handle<YieldTermStructure>(discountCurve))};
+    auto projectionCurve =
+        ext::make_shared<PiecewiseYieldCurve<Discount, LogLinear>>(
+            0, TARGET(), projectionHelpers, Actual360());
+
+    CurveJacobianGraph graph;
+    graph.add(discountCurve);
+    graph.add(projectionCurve);
+
+    std::vector<bool> analytic;
+    Matrix cross = graph.crossJacobian(*projectionCurve, *discountCurve,
+                                       &analytic);
+    BOOST_REQUIRE_EQUAL(analytic.size(), 1);
+    BOOST_CHECK(analytic[0]);
+
+    // Confirm that the row actually exercised extrapolation rather than only
+    // happening to use dates inside the discount curve's node range.
+    QuoteSensitivities quoteSensitivities =
+        projectionHelpers[0]->impliedQuoteSensitivitiesByCurve();
+    BOOST_REQUIRE(quoteSensitivities.available);
+    const auto* discountId =
+        static_cast<const TermStructure*>(discountCurve.get());
+    auto bucket = quoteSensitivities.sensitivities.find(discountId);
+    BOOST_REQUIRE(bucket != quoteSensitivities.sensitivities.end());
+    BOOST_CHECK(std::any_of(bucket->second.begin(), bucket->second.end(),
+                            [&](const auto& entry) {
+                                return entry.first > discountCurve->maxDate();
+                            }));
+
+    // The analytic graph result must still reproduce full quote bumps.  This
+    // compares d(projection node)/d(discount quote), so it exercises both the
+    // extrapolated cross block above and the discount curve's own Jacobian.
+    Matrix composed = graph.nodeQuoteJacobian(*projectionCurve,
+                                               *discountCurve);
+    const Real h = 1.0e-6;
+    const Real tolerance = 1.0e-5;
+    for (Size k = 0; k < discountQuotes.size(); ++k) {
+        Real q0 = discountQuotes[k]->value();
+        discountQuotes[k]->setValue(q0 + h);
+        std::vector<Real> up = projectionCurve->data();
+        discountQuotes[k]->setValue(q0 - h);
+        std::vector<Real> down = projectionCurve->data();
+        discountQuotes[k]->setValue(q0);
+        projectionCurve->data();
+
+        Real finiteDifference = (up[1] - down[1]) / (2.0 * h);
+        if (std::fabs(finiteDifference - composed[0][k]) > tolerance)
+            BOOST_ERROR("the extrapolated projection node responds to "
+                        "discount quote " << k << " with "
+                        << finiteDifference << ", but " << composed[0][k]
+                        << " was predicted");
+    }
+
+}
+
+template <class Interpolator>
+void checkAnalyticDiscountExtrapolation(const Interpolator& interpolator,
+                                        const std::string& name) {
+    Date referenceDate(15, Jan, 2025);
+    std::vector<Date> dates = {referenceDate, referenceDate + 1*Years,
+                               referenceDate + 3*Years,
+                               referenceDate + 7*Years};
+    std::vector<DiscountFactor> discounts = {1.0, 0.975, 0.915, 0.790};
+    Actual365Fixed dayCounter;
+    using Curve = InterpolatedDiscountCurve<Interpolator>;
+    Curve curve(dates, discounts, dayCounter, Calendar(), {}, {},
+                interpolator);
+    curve.enableExtrapolation();
+
+    const std::vector<Time>& times = curve.times();
+    Interpolation interpolation = interpolator.interpolate(
+        times.begin(), times.end(), discounts.begin());
+    Time t = times.back() + 4.0;
+    std::vector<Real> row;
+    bool analytic = detail::analyticNodeRow<Discount>(
+        &curve, {{t, 1.0}}, times, interpolation, row);
+    BOOST_REQUIRE_MESSAGE(analytic,
+                          name << " did not provide extrapolated node weights");
+    BOOST_REQUIRE_EQUAL(row.size(), discounts.size()-1);
+
+    const Real h = 1.0e-7;
+    const Real tolerance = 2.0e-7;
+    for (Size j=1; j<discounts.size(); ++j) {
+        auto upDiscounts = discounts;
+        auto downDiscounts = discounts;
+        upDiscounts[j] += h;
+        downDiscounts[j] -= h;
+        Curve up(dates, upDiscounts, dayCounter, Calendar(), {}, {},
+                 interpolator);
+        Curve down(dates, downDiscounts, dayCounter, Calendar(), {}, {},
+                   interpolator);
+        up.enableExtrapolation();
+        down.enableExtrapolation();
+        Real finiteDifference =
+            (up.discount(t)-down.discount(t))/(2.0*h);
+        BOOST_CHECK_MESSAGE(
+            std::fabs(finiteDifference-row[j-1]) < tolerance,
+            name << " extrapolated node " << j << " has analytic weight "
+                 << row[j-1] << " but finite difference " << finiteDifference);
+    }
+}
+
+template <class Traits, class Interpolator>
+void checkAnalyticZeroExtrapolation(const Interpolator& interpolator,
+                                    const std::string& name) {
+    Date referenceDate(15, Jan, 2025);
+    std::vector<Date> dates = {referenceDate, referenceDate + 1*Years,
+                               referenceDate + 3*Years,
+                               referenceDate + 7*Years};
+    std::vector<Rate> rates = {0.020, 0.020, 0.027, 0.033};
+    Actual365Fixed dayCounter;
+    using Curve = typename Traits::template curve<Interpolator>::type;
+    Curve curve(dates, rates, dayCounter, Calendar(), {}, {}, interpolator);
+    curve.enableExtrapolation();
+
+    const std::vector<Time>& times = curve.times();
+    Interpolation interpolation = interpolator.interpolate(
+        times.begin(), times.end(), rates.begin());
+    Time t = times.back() + 4.0;
+    std::vector<Real> row;
+    bool analytic = detail::analyticNodeRow<Traits>(
+        &curve, {{t, 1.0}}, times, interpolation, row);
+    BOOST_REQUIRE_MESSAGE(analytic,
+                          name << " did not provide extrapolated node weights");
+    BOOST_REQUIRE_EQUAL(row.size(), rates.size()-1);
+
+    const Real h = 1.0e-7;
+    const Real tolerance = 2.0e-7;
+    for (Size j=1; j<rates.size(); ++j) {
+        auto upRates = rates;
+        auto downRates = rates;
+        upRates[j] += h;
+        downRates[j] -= h;
+        if (j == 1) {
+            // Bootstrap traits keep the dummy time-zero value tied to the
+            // first solved zero-rate node.
+            upRates[0] += h;
+            downRates[0] -= h;
+        }
+        Curve up(dates, upRates, dayCounter, Calendar(), {}, {},
+                 interpolator);
+        Curve down(dates, downRates, dayCounter, Calendar(), {}, {},
+                   interpolator);
+        up.enableExtrapolation();
+        down.enableExtrapolation();
+        Real finiteDifference =
+            (up.discount(t)-down.discount(t))/(2.0*h);
+        BOOST_CHECK_MESSAGE(
+            std::fabs(finiteDifference-row[j-1]) < tolerance,
+            name << " extrapolated node " << j << " has analytic weight "
+                 << row[j-1] << " but finite difference " << finiteDifference);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(testAnalyticYieldCurveExtrapolationWeights) {
+
+    BOOST_TEST_MESSAGE("Testing analytic flat-forward yield-curve "
+                       "extrapolation for supported interpolators...");
+
+    checkAnalyticDiscountExtrapolation(Linear(), "linear");
+    checkAnalyticDiscountExtrapolation(LogLinear(), "log-linear");
+    checkAnalyticDiscountExtrapolation(
+        Cubic(CubicInterpolation::Spline, false), "cubic spline");
+    checkAnalyticDiscountExtrapolation(
+        LogCubic(CubicInterpolation::Spline, false), "log-cubic spline");
+    checkAnalyticDiscountExtrapolation(ForwardFlat(), "forward-flat");
+    checkAnalyticDiscountExtrapolation(BackwardFlat(), "backward-flat");
+
+    checkAnalyticZeroExtrapolation<ZeroYield>(Linear(), "linear zero");
+    checkAnalyticZeroExtrapolation<ZeroYield>(LogLinear(), "log-linear zero");
+    checkAnalyticZeroExtrapolation<ZeroYield>(
+        Cubic(CubicInterpolation::Spline, false), "cubic-spline zero");
+    checkAnalyticZeroExtrapolation<ZeroYield>(
+        LogCubic(CubicInterpolation::Spline, false), "log-cubic-spline zero");
+    checkAnalyticZeroExtrapolation<ZeroYield>(ForwardFlat(),
+                                              "forward-flat zero");
+    checkAnalyticZeroExtrapolation<ZeroYield>(BackwardFlat(),
+                                              "backward-flat zero");
+
+    checkAnalyticZeroExtrapolation<SimpleZeroYield>(Linear(),
+                                                     "linear simple zero");
+    checkAnalyticZeroExtrapolation<SimpleZeroYield>(LogLinear(),
+        "log-linear simple zero");
+    checkAnalyticZeroExtrapolation<SimpleZeroYield>(
+        Cubic(CubicInterpolation::Spline, false),
+        "cubic-spline simple zero");
+    checkAnalyticZeroExtrapolation<SimpleZeroYield>(
+        LogCubic(CubicInterpolation::Spline, false),
+        "log-cubic-spline simple zero");
+    checkAnalyticZeroExtrapolation<SimpleZeroYield>(ForwardFlat(),
+        "forward-flat simple zero");
+    checkAnalyticZeroExtrapolation<SimpleZeroYield>(BackwardFlat(),
+        "backward-flat simple zero");
+
+    // Nonlinear interpolation schemes remain numerical, just as they do
+    // inside the interpolation range.
+    Date referenceDate(15, Jan, 2025);
+    std::vector<Date> dates = {referenceDate, referenceDate + 1*Years,
+                               referenceDate + 3*Years,
+                               referenceDate + 7*Years};
+    std::vector<DiscountFactor> discounts = {1.0, 0.975, 0.915, 0.790};
+    LogCubic monotonic(CubicInterpolation::Spline, true);
+    InterpolatedDiscountCurve<LogCubic> curve(
+        dates, discounts, Actual365Fixed(), Calendar(), {}, {}, monotonic);
+    curve.enableExtrapolation();
+    const auto& times = curve.times();
+    Interpolation interpolation = monotonic.interpolate(
+        times.begin(), times.end(), discounts.begin());
+    std::vector<Real> row;
+    BOOST_CHECK(!detail::analyticNodeRow<Discount>(
+        &curve, {{times.back()+4.0, 1.0}}, times, interpolation, row));
+}
+
 BOOST_AUTO_TEST_CASE(testCrossCurveJacobianThroughWrapper) {
 
     BOOST_TEST_MESSAGE("Testing cross-curve Jacobians through a wrapping "
