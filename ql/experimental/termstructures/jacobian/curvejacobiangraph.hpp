@@ -218,10 +218,12 @@ namespace QuantLib {
         }
 
         /*! Propagate direct node risk over the dependency graph.
-            Zero risk is node risk after dependent curves pass risk back.
-            A curve's own helpers still move through its diagonal block.
-            Par risk then solves \f$ A_{bb}^T r_b = z_b \f$.
-            Either output may be null. Input arrays must match node counts.
+            Par risk solves \f$ J^T r=s \f$ in each dependency component.
+            Zero risk fixes each curve while the others rebootstrap. In an
+            acyclic component it satisfies
+            \f$ A_{bb}^T r_b=z_b \f$. A cyclic component requires a reduced
+            solve and need not satisfy this identity. Either output may be
+            null. Input arrays must match node counts.
         */
         void propagateNodeRisk(
                 const std::map<const YieldTermStructure*, Array>& nodeRisk,
@@ -244,7 +246,8 @@ namespace QuantLib {
             }
 
             detail::CurveRiskPropagation propagated =
-                detail::propagateCurveNodeRisk(blocks, direct);
+                detail::propagateCurveNodeRisk(blocks, direct,
+                                               zeroRisk != nullptr);
 
             for (Size b = 0; b < nodes_.size(); ++b) {
                 if (zeroRisk != nullptr)

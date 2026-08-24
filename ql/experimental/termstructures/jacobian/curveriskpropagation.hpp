@@ -154,10 +154,7 @@ namespace QuantLib {
 
         //! node and quote risk for a curve group
         struct CurveRiskPropagation {
-            /*! Node risk after dependent calibrated curves pass back their
-                response. The curve's own helpers still move through its
-                diagonal block.
-            */
+            //! risk from fixing one curve's nodes while the others rebootstrap
             std::vector<Array> nodeRisk;
             //! risk against helper quotes
             std::vector<Array> quoteRisk;
@@ -208,16 +205,14 @@ namespace QuantLib {
             return x;
         }
 
-        /*! Solve \f$ J^T r = s \f$ without forming \f$ J^{-1} \f$.
-            Dependents are processed first. Curve \f$ a \f$ passes
-            \f$ -A_{ab}^T r_a \f$ to each dependency \f$ b \f$, then solves
-            \f$ A_{bb}^T r_b = z_b \f$. Mutually dependent curves are solved
-            together. The returned node risk is \f$ z_b \f$. Empty direct-risk
+        /*! Solve \f$ J^T r=s \f$ by dependency component. When requested,
+            zero risk fixes each curve while the others re-solve. Empty risk
             arrays are treated as zero.
         */
         inline CurveRiskPropagation
         propagateCurveNodeRisk(const CurveJacobianBlocks& blocks,
-                               const std::vector<Array>& directNodeRisk) {
+                               const std::vector<Array>& directNodeRisk,
+                               bool computeZeroRisk) {
             Size n = blocks.size();
             QL_REQUIRE(directNodeRisk.size() == n,
                        "node risk was given for " << directNodeRisk.size() <<
@@ -330,15 +325,65 @@ namespace QuantLib {
                               r.begin() + rowOffset[i + 1],
                               result.quoteRisk[component[i]].begin());
 
-                // risk within the component
-                for (Size b : component)
-                    for (Size a : component)
-                        if (a != b) {
-                            const Matrix* A = blocks.block(a, b);
-                            if (A != nullptr)
-                                result.nodeRisk[b] -=
-                                    transpose(*A) * result.quoteRisk[a];
+                // Fix each curve and re-solve the rest of the cycle.
+                if (computeZeroRisk && component.size() > 1) {
+                    std::vector<Array> exogenous(component.size());
+                    for (Size k = 0; k < component.size(); ++k) {
+                        std::vector<Size> rest;
+                        for (Size i = 0; i < component.size(); ++i)
+                            if (i != k)
+                                rest.push_back(i);
+
+                        std::vector<Size> rowRest(rest.size() + 1, 0);
+                        std::vector<Size> colRest(rest.size() + 1, 0);
+                        for (Size i = 0; i < rest.size(); ++i) {
+                            rowRest[i + 1] =
+                                rowRest[i] + blocks.numQuotes(component[rest[i]]);
+                            colRest[i + 1] =
+                                colRest[i] + blocks.numNodes(component[rest[i]]);
                         }
+
+                        Matrix jr(rowRest.back(), colRest.back(), 0.0);
+                        for (Size i = 0; i < rest.size(); ++i)
+                            for (Size j = 0; j < rest.size(); ++j) {
+                                const Matrix* A = blocks.block(component[rest[i]],
+                                                               component[rest[j]]);
+                                if (A == nullptr)
+                                    continue;
+                                for (Size q = 0; q < A->rows(); ++q)
+                                    std::copy(A->row_begin(q), A->row_end(q),
+                                              jr.row_begin(rowRest[i] + q) +
+                                                  colRest[j]);
+                            }
+
+                        Array rhsRest(colRest.back(), 0.0);
+                        for (Size i = 0; i < rest.size(); ++i)
+                            std::copy(rhs.begin() + colOffset[rest[i]],
+                                      rhs.begin() + colOffset[rest[i] + 1],
+                                      rhsRest.begin() + colRest[i]);
+
+                        Array y = checkedQrSolve(
+                            transpose(jr), rhsRest,
+                            "curve-risk Jacobian component without one curve");
+
+                        Array node(blocks.numNodes(component[k]));
+                        std::copy(rhs.begin() + colOffset[k],
+                                  rhs.begin() + colOffset[k + 1], node.begin());
+                        for (Size i = 0; i < rest.size(); ++i) {
+                            const Matrix* A = blocks.block(component[rest[i]],
+                                                           component[k]);
+                            if (A == nullptr)
+                                continue;
+                            Array quote(A->rows());
+                            std::copy(y.begin() + rowRest[i],
+                                      y.begin() + rowRest[i + 1], quote.begin());
+                            node -= transpose(*A) * quote;
+                        }
+                        exogenous[k] = node;
+                    }
+                    for (Size k = 0; k < component.size(); ++k)
+                        result.nodeRisk[component[k]] = exogenous[k];
+                }
                 for (Size b : component)
                     solved[b] = true;
             }
