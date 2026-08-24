@@ -2789,6 +2789,45 @@ BOOST_AUTO_TEST_CASE(testCurveRiskPropagation) {
                           singular, Array(2, 1.0), "test Jacobian"),
                       Error);
 
+    // Par risk needs only the full system. A reduced zero-risk system can be
+    // singular even when the full system is not.
+    detail::CurveJacobianBlocks cycle;
+    cycle.nodeOffset = {0, 1, 2};
+    cycle.quoteOffset = {0, 1, 2};
+    cycle.own = {Matrix(1, 1, 0.0), Matrix(1, 1, 0.0)};
+    cycle.coupling.emplace(std::make_pair(0, 1), Matrix(1, 1, 1.0));
+    cycle.coupling.emplace(std::make_pair(1, 0), Matrix(1, 1, 1.0));
+    cycle.dependsOn = {{1}, {0}};
+    cycle.analyticQuotes = {{true}, {true}};
+    std::vector<Array> cycleRisk = {Array(1, 2.0), Array(1, 3.0)};
+
+    detail::CurveRiskPropagation parOnly =
+        detail::propagateCurveNodeRisk(cycle, cycleRisk, false);
+    BOOST_CHECK_SMALL(parOnly.quoteRisk[0][0] - 3.0, 1.0e-12);
+    BOOST_CHECK_SMALL(parOnly.quoteRisk[1][0] - 2.0, 1.0e-12);
+    BOOST_CHECK_THROW(detail::propagateCurveNodeRisk(cycle, cycleRisk, true),
+                      Error);
+
+    // Compare zero risk with a fixed-node bump while the other curve re-solves.
+    detail::CurveJacobianBlocks coupled = cycle;
+    coupled.own = {Matrix(1, 1, 2.0), Matrix(1, 1, 1.5)};
+    coupled.coupling[{0, 1}] = Matrix(1, 1, 0.5);
+    coupled.coupling[{1, 0}] = Matrix(1, 1, -0.25);
+    detail::CurveRiskPropagation propagated =
+        detail::propagateCurveNodeRisk(coupled, cycleRisk, true);
+
+    const Real nodeBump = 1.0e-6;
+    auto shiftedValue = [&](Size fixed, Real shift) {
+        Real z0 = fixed == 0 ? shift : -0.5 / 2.0 * shift;
+        Real z1 = fixed == 1 ? shift : 0.25 / 1.5 * shift;
+        return cycleRisk[0][0] * z0 + cycleRisk[1][0] * z1;
+    };
+    for (Size b = 0; b < 2; ++b) {
+        Real fd = (shiftedValue(b, nodeBump) - shiftedValue(b, -nodeBump)) /
+                  (2.0 * nodeBump);
+        BOOST_CHECK_SMALL(propagated.nodeRisk[b][0] - fd, 1.0e-12);
+    }
+
     // ESTR discount curve
     std::vector<ext::shared_ptr<SimpleQuote>> oisQuotes;
     std::vector<ext::shared_ptr<RateHelper>> oisHelpers;
@@ -3496,18 +3535,58 @@ BOOST_AUTO_TEST_CASE(testCoDependentCurveRiskPropagation) {
         }
     }
 
-    // each curve's own Jacobian still maps its par risk back to its zero risk
-    for (auto& c : curves) {
-        Matrix own = graph.crossJacobian(*c.curve, *c.curve);
-        Array reconstructed = transpose(own) * par.at(c.curve.get());
-        const Array& z = zero.at(c.curve.get());
-        BOOST_REQUIRE(reconstructed.size() == z.size());
+    // Rebuild each reduced system from public graph blocks and compare zero risk.
+    for (Size b = 0; b < curves.size(); ++b) {
+        std::vector<Size> rest;
+        for (Size i = 0; i < curves.size(); ++i)
+            if (i != b)
+                rest.push_back(i);
+
+        std::vector<Size> rows(rest.size() + 1, 0), cols(rest.size() + 1, 0);
+        for (Size i = 0; i < rest.size(); ++i) {
+            const Array& own = nodeRisk.at(curves[rest[i]].curve.get());
+            rows[i + 1] = rows[i] +
+                graph.crossJacobian(*curves[rest[i]].curve,
+                                    *curves[rest[i]].curve).rows();
+            cols[i + 1] = cols[i] + own.size();
+        }
+
+        Matrix jrr(rows.back(), cols.back(), 0.0);
+        for (Size i = 0; i < rest.size(); ++i)
+            for (Size j = 0; j < rest.size(); ++j) {
+                Matrix block = graph.crossJacobian(*curves[rest[i]].curve,
+                                                   *curves[rest[j]].curve);
+                for (Size q = 0; q < block.rows(); ++q)
+                    std::copy(block.row_begin(q), block.row_end(q),
+                              jrr.row_begin(rows[i] + q) + cols[j]);
+            }
+
+        Array sRest(cols.back(), 0.0);
+        for (Size i = 0; i < rest.size(); ++i) {
+            const Array& own = nodeRisk.at(curves[rest[i]].curve.get());
+            std::copy(own.begin(), own.end(), sRest.begin() + cols[i]);
+        }
+
+        Array y = inverse(transpose(jrr)) * sRest;
+
+        Array expected = nodeRisk.at(curves[b].curve.get());
+        for (Size i = 0; i < rest.size(); ++i) {
+            Matrix coupling = graph.crossJacobian(*curves[rest[i]].curve,
+                                                  *curves[b].curve);
+            Array quote(coupling.rows());
+            std::copy(y.begin() + rows[i], y.begin() + rows[i + 1], quote.begin());
+            expected -= transpose(coupling) * quote;
+        }
+
+        const Array& z = zero.at(curves[b].curve.get());
+        BOOST_REQUIRE(expected.size() == z.size());
         for (Size j = 0; j < z.size(); ++j)
-            if (std::fabs(reconstructed[j] - z[j]) >
-                tolerance * std::max(1.0, std::fabs(z[j])))
-                BOOST_ERROR("zero risk of node " << j << " of the " << c.name
-                            << " curve is " << z[j] << ", but its own Jacobian "
-                            "maps the par risk back to " << reconstructed[j]);
+            if (std::fabs(expected[j] - z[j]) >
+                1.0e-6 * std::max(1.0, std::fabs(expected[j])))
+                BOOST_ERROR("zero risk of node " << j << " of the "
+                            << curves[b].name << " curve is " << z[j]
+                            << ", but dropping that curve's bootstrap conditions "
+                            "and re-solving the rest gives " << expected[j]);
     }
 
     // the pair feed each other, and both feed the curve they discount on
