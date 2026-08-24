@@ -307,6 +307,9 @@
     <Filter Include="experimental\termstructures">
       <UniqueIdentifier>{8a1123c5-a617-4cf2-93df-e554735531ae}</UniqueIdentifier>
     </Filter>
+    <Filter Include="experimental\termstructures\jacobian">
+      <UniqueIdentifier>{c20da7fd-0d27-498a-b8cb-5502ac62cb78}</UniqueIdentifier>
+    </Filter>
     <Filter Include="experimental\variancegamma">
       <UniqueIdentifier>{12b22ebc-4102-4d94-b640-8490b20365b7}</UniqueIdentifier>
     </Filter>
@@ -1984,9 +1987,6 @@
       <Filter>termstructures</Filter>
     </ClInclude>
     <ClInclude Include="ql\termstructures\bootstraphelper.hpp">
-      <Filter>termstructures</Filter>
-    </ClInclude>
-    <ClInclude Include="ql\termstructures\bootstrapjacobian.hpp">
       <Filter>termstructures</Filter>
     </ClInclude>
     <ClInclude Include="ql\termstructures\defaulttermstructure.hpp">
@@ -4482,11 +4482,23 @@
     <ClInclude Include="ql\experimental\termstructures\crosscurrencyratehelpers.hpp">
       <Filter>experimental\termstructures</Filter>
     </ClInclude>
-    <ClInclude Include="ql\experimental\termstructures\curvechainrulecalculator.hpp">
-      <Filter>experimental\termstructures</Filter>
+    <ClInclude Include="ql\experimental\termstructures\jacobian\all.hpp">
+      <Filter>experimental\termstructures\jacobian</Filter>
     </ClInclude>
-    <ClInclude Include="ql\experimental\termstructures\curvejacobiangraph.hpp">
-      <Filter>experimental\termstructures</Filter>
+    <ClInclude Include="ql\experimental\termstructures\jacobian\bootstrapequationjacobian.hpp">
+      <Filter>experimental\termstructures\jacobian</Filter>
+    </ClInclude>
+    <ClInclude Include="ql\experimental\termstructures\jacobian\curvechainrulecalculator.hpp">
+      <Filter>experimental\termstructures\jacobian</Filter>
+    </ClInclude>
+    <ClInclude Include="ql\experimental\termstructures\jacobian\curvecrossjacobian.hpp">
+      <Filter>experimental\termstructures\jacobian</Filter>
+    </ClInclude>
+    <ClInclude Include="ql\experimental\termstructures\jacobian\curvejacobiangraph.hpp">
+      <Filter>experimental\termstructures\jacobian</Filter>
+    </ClInclude>
+    <ClInclude Include="ql\experimental\termstructures\jacobian\curveriskpropagation.hpp">
+      <Filter>experimental\termstructures\jacobian</Filter>
     </ClInclude>
     <ClInclude Include="ql\experimental\termstructures\quotesensitivitycalculator.hpp">
       <Filter>experimental\termstructures</Filter>

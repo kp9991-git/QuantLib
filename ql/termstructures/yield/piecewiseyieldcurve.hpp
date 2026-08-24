@@ -28,7 +28,7 @@
 
 #include <ql/patterns/lazyobject.hpp>
 #include <ql/math/matrix.hpp>
-#include <ql/termstructures/bootstrapjacobian.hpp>
+#include <ql/experimental/termstructures/jacobian/curvecrossjacobian.hpp>
 #include <ql/termstructures/iterativebootstrap.hpp>
 #include <ql/termstructures/globalbootstrap.hpp>
 #include <ql/termstructures/multicurve.hpp>
@@ -243,7 +243,7 @@ namespace QuantLib {
                                        std::vector<bool>* analyticRows) const {
         calculate();
         if (!jacobianCacheValid_) {
-            jacobianCache_ = detail::bootstrapJacobian<Traits>(
+            jacobianCache_ = detail::bootstrapEquationJacobian<Traits>(
                 this, instruments_, this->times_, this->data_,
                 this->interpolation_, !this->jumpDates().empty(),
                 &jacobianAnalyticRows_);
@@ -280,7 +280,7 @@ namespace QuantLib {
                 return result;
             }
         }
-        return detail::inverseBootstrapJacobian(jacobian(analyticRows));
+        return detail::inverseBootstrapEquationJacobian(jacobian(analyticRows));
     }
 
     template <class C, class I, template <class> class B>

@@ -21,8 +21,8 @@
     \brief chain-rule propagation across curve-value dependencies
 */
 
-#ifndef quantlib_curve_chain_rule_calculator_hpp
-#define quantlib_curve_chain_rule_calculator_hpp
+#ifndef quantlib_experimental_curve_chain_rule_calculator_hpp
+#define quantlib_experimental_curve_chain_rule_calculator_hpp
 
 #include <ql/errors.hpp>
 #include <ql/time/date.hpp>
@@ -48,7 +48,7 @@ namespace QuantLib {
 
         class CurveChainRuleCalculator;
 
-        //! dependencies of one curve and their sensitivity transforms
+        //! curve dependencies and their sensitivity transforms
         class CurveDependencies {
           public:
             void add(CurveId target,
@@ -84,7 +84,7 @@ namespace QuantLib {
             friend class CurveChainRuleCalculator;
         };
 
-        //! applies the chain rule across curve-value dependencies
+        //! chain-rule propagation across curve-value dependencies
         class CurveChainRuleCalculator {
           public:
             void add(CurveId source,
@@ -184,7 +184,7 @@ namespace QuantLib {
             std::map<CurveId, CurveDependencies> dependencies_;
         };
 
-        //! environment used while differentiating one cross-curve block
+        //! dependency context for one cross-curve block
         class CurveCrossJacobianContext {
           public:
             void addCurve(
