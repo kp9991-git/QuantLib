@@ -30,7 +30,7 @@
 #include <ql/models/shortrate/onefactormodel.hpp>
 #include <ql/patterns/lazyobject.hpp>
 #include <ql/quote.hpp>
-#include <ql/termstructures/bootstrapjacobian.hpp>
+#include <ql/experimental/termstructures/jacobian/bootstrapequationjacobian.hpp>
 #include <ql/termstructures/credit/probabilitytraits.hpp>
 #include <ql/termstructures/iterativebootstrap.hpp>
 #include <utility>
@@ -191,7 +191,7 @@ namespace QuantLib {
         Matrix jacobian(std::vector<bool>* analyticRows = nullptr) const {
             calculate();
             if (!jacobianCacheValid_) {
-                jacobianCache_ = detail::bootstrapJacobian<Traits>(
+                jacobianCache_ = detail::bootstrapEquationJacobian<Traits>(
                     this, instruments_, this->times_, this->data_,
                 this->interpolation_, !this->jumpDates().empty(),
                     &jacobianAnalyticRows_);
@@ -203,7 +203,7 @@ namespace QuantLib {
         }
         //! Jacobian of curve nodes with respect to helper quotes
         Matrix inverseJacobian(std::vector<bool>* analyticRows = nullptr) const {
-            return detail::inverseBootstrapJacobian(jacobian(analyticRows));
+            return detail::inverseBootstrapEquationJacobian(jacobian(analyticRows));
         }
         //@}
         //! \name Observer interface

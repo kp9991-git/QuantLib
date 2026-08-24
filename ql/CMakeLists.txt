@@ -1240,8 +1240,11 @@ set(QL_HEADERS
     experimental/swaptions/irregularswaption.hpp
     experimental/termstructures/basisswapratehelpers.hpp
     experimental/termstructures/crosscurrencyratehelpers.hpp
-    experimental/termstructures/curvechainrulecalculator.hpp
-    experimental/termstructures/curvejacobiangraph.hpp
+    experimental/termstructures/jacobian/bootstrapequationjacobian.hpp
+    experimental/termstructures/jacobian/curvechainrulecalculator.hpp
+    experimental/termstructures/jacobian/curvecrossjacobian.hpp
+    experimental/termstructures/jacobian/curvejacobiangraph.hpp
+    experimental/termstructures/jacobian/curveriskpropagation.hpp
     experimental/termstructures/quotesensitivitycalculator.hpp
     experimental/variancegamma/analyticvariancegammaengine.hpp
     experimental/variancegamma/fftengine.hpp
@@ -2110,7 +2113,6 @@ set(QL_HEADERS
     termstructure.hpp
     termstructures/bootstraperror.hpp
     termstructures/bootstraphelper.hpp
-    termstructures/bootstrapjacobian.hpp
     termstructures/credit/defaultdensitystructure.hpp
     termstructures/credit/defaultprobabilityhelpers.hpp
     termstructures/credit/flathazardrate.hpp
@@ -2362,6 +2364,7 @@ set(QL_GENERATED_HEADERS
     ${PROJECT_BINARY_DIR}/ql/experimental/shortrate/all.hpp
     ${PROJECT_BINARY_DIR}/ql/experimental/swaptions/all.hpp
     ${PROJECT_BINARY_DIR}/ql/experimental/termstructures/all.hpp
+    ${PROJECT_BINARY_DIR}/ql/experimental/termstructures/jacobian/all.hpp
     ${PROJECT_BINARY_DIR}/ql/experimental/variancegamma/all.hpp
     ${PROJECT_BINARY_DIR}/ql/experimental/varianceoption/all.hpp
     ${PROJECT_BINARY_DIR}/ql/experimental/volatility/all.hpp

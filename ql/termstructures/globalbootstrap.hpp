@@ -28,7 +28,7 @@
 #include <ql/math/interpolations/linearinterpolation.hpp>
 #include <ql/math/optimization/levenbergmarquardt.hpp>
 #include <ql/termstructures/bootstraphelper.hpp>
-#include <ql/termstructures/bootstrapjacobian.hpp>
+#include <ql/experimental/termstructures/jacobian/curvecrossjacobian.hpp>
 #include <ql/utilities/dataformatters.hpp>
 #include <ql/utilities/null_deleter.hpp>
 #include <algorithm>
@@ -607,7 +607,7 @@ bool GlobalBootstrap<Curve>::analyticCostJacobian(Matrix& jac, const Array& x) c
         setCostFunctionArgument(x);
 
         std::vector<bool> analytic;
-        Matrix J = detail::bootstrapJacobian<Traits>(
+        Matrix J = detail::bootstrapEquationJacobian<Traits>(
             ts_, aliveInstruments_, ts_->times_, ts_->data_, ts_->interpolation_,
             !ts_->jumpDates().empty(), &analytic, false);
         for (auto flag : analytic)  // NOLINT(readability-use-anyofallof)

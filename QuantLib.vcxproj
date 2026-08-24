@@ -773,8 +773,12 @@
     <ClInclude Include="ql\experimental\termstructures\all.hpp" />
     <ClInclude Include="ql\experimental\termstructures\basisswapratehelpers.hpp" />
     <ClInclude Include="ql\experimental\termstructures\crosscurrencyratehelpers.hpp" />
-    <ClInclude Include="ql\experimental\termstructures\curvechainrulecalculator.hpp" />
-    <ClInclude Include="ql\experimental\termstructures\curvejacobiangraph.hpp" />
+    <ClInclude Include="ql\experimental\termstructures\jacobian\all.hpp" />
+    <ClInclude Include="ql\experimental\termstructures\jacobian\bootstrapequationjacobian.hpp" />
+    <ClInclude Include="ql\experimental\termstructures\jacobian\curvechainrulecalculator.hpp" />
+    <ClInclude Include="ql\experimental\termstructures\jacobian\curvecrossjacobian.hpp" />
+    <ClInclude Include="ql\experimental\termstructures\jacobian\curvejacobiangraph.hpp" />
+    <ClInclude Include="ql\experimental\termstructures\jacobian\curveriskpropagation.hpp" />
     <ClInclude Include="ql\experimental\termstructures\quotesensitivitycalculator.hpp" />
     <ClInclude Include="ql\experimental\variancegamma\all.hpp" />
     <ClInclude Include="ql\experimental\variancegamma\analyticvariancegammaengine.hpp" />
@@ -1696,7 +1700,6 @@
     <ClInclude Include="ql\termstructures\all.hpp" />
     <ClInclude Include="ql\termstructures\bootstraperror.hpp" />
     <ClInclude Include="ql\termstructures\bootstraphelper.hpp" />
-    <ClInclude Include="ql\termstructures\bootstrapjacobian.hpp" />
     <ClInclude Include="ql\termstructures\credit\all.hpp" />
     <ClInclude Include="ql\termstructures\credit\defaultdensitystructure.hpp" />
     <ClInclude Include="ql\termstructures\credit\defaultprobabilityhelpers.hpp" />

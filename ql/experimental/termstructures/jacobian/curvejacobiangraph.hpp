@@ -26,7 +26,7 @@
 
 #include <ql/math/array.hpp>
 #include <ql/math/matrix.hpp>
-#include <ql/termstructures/bootstrapjacobian.hpp>
+#include <ql/experimental/termstructures/jacobian/curveriskpropagation.hpp>
 #include <ql/termstructures/yieldtermstructure.hpp>
 #include <functional>
 #include <map>
@@ -36,18 +36,14 @@
 namespace QuantLib {
 
     //! cross-curve Jacobians for bootstrapped curves
-    /*! Combines the bootstrap equations of registered curves, including
-        acyclic dependencies and curves bootstrapped jointly by MultiCurve.
-        Rows follow alive helpers and columns follow free curve nodes in
-        registration order.
+    /*! Combines the bootstrap equations of registered curves. Rows follow
+        alive helpers and columns follow free nodes in registration order.
     */
     class CurveJacobianGraph {
       public:
-        /*! Register a calibrated curve or inspect a supported derived curve.
-
-            Calibrated curves contribute nodes and helper quotes to the
-            Jacobian system.  Non-calibrated curves exposing baseCurve() are
-            recorded as dependency bridges and do not contribute a block.
+        /*! Register a calibrated curve or a supported derived curve.
+            Calibrated curves contribute blocks. Derived curves only record
+            dependencies.
         */
         template <class Curve>
         void add(const ext::shared_ptr<Curve>& curve) {
@@ -73,12 +69,9 @@ namespace QuantLib {
             }
         }
 
-        /*! Validate all dependencies reported by the registered helpers.
-
-            If requireAnalyticMetadata is true, helpers that do not expose
-            QuoteSensitivities are rejected as well.  Otherwise they remain
-            eligible for numerical differentiation, but dependencies reported
-            by helpers that do expose metadata are always checked.
+        /*! Validate dependencies reported by registered helpers.
+            When requireAnalyticMetadata is true, reject helpers without
+            sensitivity metadata. Otherwise they can use numerical rows.
         */
         void validateDependencies(bool requireAnalyticMetadata = false) const {
             std::set<const TermStructure*> declared = accountedCurves();
@@ -190,12 +183,12 @@ namespace QuantLib {
             return block;
         }
 
-        /*! Convert node risk to par-instrument risk for all registered curves.
-            Input keys must be registered and arrays must match node counts.
+        /*! Convert node risk to par risk using the dense inverse.
+            This is the reference implementation of parRisk().
         */
         std::map<const YieldTermStructure*, Array>
-        parRisk(const std::map<const YieldTermStructure*, Array>& nodeRisk,
-                std::vector<bool>* analyticRows = nullptr) const {
+        parRiskDense(const std::map<const YieldTermStructure*, Array>& nodeRisk,
+                     std::vector<bool>* analyticRows = nullptr) const {
             validateDependencies();
             std::vector<Size> rowOffsets, colOffsets;
             std::vector<bool> allAnalytic;
@@ -205,7 +198,7 @@ namespace QuantLib {
             if (analyticRows != nullptr)
                 *analyticRows = std::move(allAnalytic);
 
-            // r = transpose(S) * s, with s the stacked node risk
+            // s is the stacked node risk and r = transpose(S) * s
             Array s(S.rows(), 0.0);
             for (const auto& [curve, risk] : nodeRisk) {
                 Size a = index(*curve);
@@ -221,6 +214,75 @@ namespace QuantLib {
             for (Size b = 0; b < nodes_.size(); ++b)
                 result[nodes_[b].curve.get()] =
                     Array(r.begin() + colOffsets[b], r.begin() + colOffsets[b+1]);
+            return result;
+        }
+
+        /*! Propagate direct node risk over the dependency graph.
+            Zero risk is node risk after dependent curves pass risk back.
+            A curve's own helpers still move through its diagonal block.
+            Par risk then solves \f$ A_{bb}^T r_b = z_b \f$.
+            Either output may be null. Input arrays must match node counts.
+        */
+        void propagateNodeRisk(
+                const std::map<const YieldTermStructure*, Array>& nodeRisk,
+                std::map<const YieldTermStructure*, Array>* zeroRisk,
+                std::map<const YieldTermStructure*, Array>* parRisk,
+                std::vector<bool>* analyticRows = nullptr) const {
+            validateDependencies();
+            detail::CurveCrossJacobianContext context = jacobianContext(false);
+            detail::CurveJacobianBlocks blocks =
+                detail::curveJacobianBlocks(nodes_, context);
+
+            std::vector<Array> direct(nodes_.size());
+            for (const auto& [curve, risk] : nodeRisk) {
+                Size a = index(*curve);
+                QL_REQUIRE(risk.size() == blocks.numNodes(a),
+                           "node risk size (" << risk.size() <<
+                           ") does not match the number of curve nodes (" <<
+                           blocks.numNodes(a) << ")");
+                direct[a] = risk;
+            }
+
+            detail::CurveRiskPropagation propagated =
+                detail::propagateCurveNodeRisk(blocks, direct);
+
+            for (Size b = 0; b < nodes_.size(); ++b) {
+                if (zeroRisk != nullptr)
+                    (*zeroRisk)[nodes_[b].curve.get()] = propagated.nodeRisk[b];
+                if (parRisk != nullptr)
+                    (*parRisk)[nodes_[b].curve.get()] = propagated.quoteRisk[b];
+            }
+
+            if (analyticRows != nullptr) {
+                std::vector<bool> flat;
+                flat.reserve(blocks.quoteOffset.back());
+                for (const auto& curveFlags : blocks.analyticQuotes)
+                    flat.insert(flat.end(),
+                                curveFlags.begin(), curveFlags.end());
+                *analyticRows = std::move(flat);
+            }
+        }
+
+        /*! Convert direct node risk to node risk for all registered curves,
+            following the dependency graph. Input keys must be registered and
+            arrays must match node counts.
+        */
+        std::map<const YieldTermStructure*, Array>
+        zeroRisk(const std::map<const YieldTermStructure*, Array>& nodeRisk,
+                 std::vector<bool>* analyticRows = nullptr) const {
+            std::map<const YieldTermStructure*, Array> result;
+            propagateNodeRisk(nodeRisk, &result, nullptr, analyticRows);
+            return result;
+        }
+
+        /*! Convert node risk to par-instrument risk for all registered curves.
+            Input keys must be registered and arrays must match node counts.
+        */
+        std::map<const YieldTermStructure*, Array>
+        parRisk(const std::map<const YieldTermStructure*, Array>& nodeRisk,
+                std::vector<bool>* analyticRows = nullptr) const {
+            std::map<const YieldTermStructure*, Array> result;
+            propagateNodeRisk(nodeRisk, nullptr, &result, analyticRows);
             return result;
         }
 
