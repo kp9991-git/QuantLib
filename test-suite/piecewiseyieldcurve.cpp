@@ -89,6 +89,78 @@ struct Datum {
     Rate rate;
 };
 
+template <class Traits, class Interpolator>
+void checkZeroNodeTransformation(bool expectedAnalytic) {
+    SavedSettings backup;
+    Settings::instance().evaluationDate() = Date(23, Oct, 2025);
+
+    std::vector<ext::shared_ptr<SimpleQuote>> quotes;
+    std::vector<ext::shared_ptr<RateHelper>> helpers;
+    auto estr = ext::make_shared<Estr>();
+    for (auto& [months, rate] : std::vector<std::pair<Integer, Rate>>{
+             {3, 0.0195}, {12, 0.0210}, {24, 0.0225}, {60, 0.0250},
+             {120, 0.0260}}) {
+        auto quote = ext::make_shared<SimpleQuote>(rate);
+        quotes.push_back(quote);
+        helpers.push_back(ext::make_shared<OISRateHelper>(
+            2, months * Months, Handle<Quote>(quote), estr));
+    }
+
+    using Curve = PiecewiseYieldCurve<Traits, Interpolator>;
+    auto curve = ext::make_shared<Curve>(
+        0, TARGET(), helpers, Actual360(), Interpolator());
+    curve->enableExtrapolation();
+
+    CurveJacobianGraph graph;
+    graph.add(curve);
+
+    std::vector<bool> analytic;
+    Matrix zeroNode = graph.zeroNodeJacobian(*curve, &analytic);
+    Matrix nodeZero = graph.nodeZeroJacobian(*curve);
+    Size nodes = curve->data().size() - 1;
+    BOOST_REQUIRE_EQUAL(zeroNode.rows(), nodes);
+    BOOST_REQUIRE_EQUAL(zeroNode.columns(), nodes);
+    BOOST_REQUIRE_EQUAL(analytic.size(), nodes);
+    BOOST_CHECK(std::all_of(
+        analytic.begin(), analytic.end(),
+        [expectedAnalytic](bool flag) { return flag == expectedAnalytic; }));
+
+    Matrix identity = zeroNode * nodeZero;
+    for (Size i = 0; i < nodes; ++i)
+        for (Size j = 0; j < nodes; ++j)
+            BOOST_CHECK_SMALL(identity[i][j] - (i == j ? 1.0 : 0.0),
+                              1.0e-8);
+
+    Matrix nodeQuote = graph.nodeQuoteJacobian(*curve, *curve);
+    std::vector<Date> dates(curve->dates().begin() + 1,
+                            curve->dates().end());
+    const Real h = 1.0e-6;
+    for (Size k = 0; k < quotes.size(); ++k) {
+        Real value = quotes[k]->value();
+        quotes[k]->setValue(value + h);
+        std::vector<Rate> up;
+        for (const auto& date : dates)
+            up.push_back(curve->zeroRate(
+                date, Actual360(), Continuous, NoFrequency, true).rate());
+
+        quotes[k]->setValue(value - h);
+        std::vector<Rate> down;
+        for (const auto& date : dates)
+            down.push_back(curve->zeroRate(
+                date, Actual360(), Continuous, NoFrequency, true).rate());
+        quotes[k]->setValue(value);
+        curve->data();
+
+        for (Size i = 0; i < nodes; ++i) {
+            Real expected = (up[i] - down[i]) / (2.0 * h);
+            Real calculated = 0.0;
+            for (Size j = 0; j < nodes; ++j)
+                calculated += zeroNode[i][j] * nodeQuote[j][k];
+            BOOST_CHECK_SMALL(calculated - expected, 2.0e-5);
+        }
+    }
+}
+
 struct BondDatum {
     Integer n;
     TimeUnit units;
@@ -2666,6 +2738,16 @@ BOOST_AUTO_TEST_CASE(testGlobalBootstrapWithJacobianOptimizer) {
         vars.settlement, vars.instruments, Actual360(), BackwardFlat(),
         GlobalBootstrap<GBFwdCurve>(Null<Real>(), nullptr, nullptr, {}, nullptr, true));
     BOOST_CHECK_THROW(curveThrow->data(), Error);
+}
+
+BOOST_AUTO_TEST_CASE(testZeroNodeTransformation) {
+
+    BOOST_TEST_MESSAGE("Testing transformations between continuous zeros and curve nodes...");
+
+    checkZeroNodeTransformation<Discount, LogLinear>(true);
+    checkZeroNodeTransformation<ZeroYield, Linear>(true);
+    checkZeroNodeTransformation<SimpleZeroYield, Linear>(true);
+    checkZeroNodeTransformation<ForwardRate, BackwardFlat>(false);
 }
 
 BOOST_AUTO_TEST_CASE(testCrossCurveJacobian) {

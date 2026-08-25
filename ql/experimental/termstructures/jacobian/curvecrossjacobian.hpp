@@ -65,6 +65,7 @@ namespace QuantLib {
             CurveDependencies valueDependencies;
             std::function<void()> ensure;
             std::function<Size()> numNodes;
+            std::function<std::vector<Date>()> nodeDates;
             std::function<std::vector<ext::shared_ptr<BootstrapHelper<YieldTermStructure>>>()>
                 aliveHelpers;
             std::function<Matrix(std::vector<bool>*)> ownJacobian;
@@ -130,6 +131,11 @@ namespace QuantLib {
                     curve->calculate();
                     return curve->times_.size() - 1;
                 };
+                n.nodeDates = [curve] {
+                    curve->calculate();
+                    return std::vector<Date>(curve->dates_.begin() + 1,
+                                             curve->dates_.end());
+                };
                 n.aliveHelpers = [curve] {
                     curve->calculate();
                     Date firstDate = Traits::initialDate(curve.get());
@@ -169,6 +175,97 @@ namespace QuantLib {
                 return n;
             }
         };
+
+        //! Fill selected rows by perturbing each free node
+        template <class Value>
+        void fillNumericalNodeRows(const CurveJacobianNode& n,
+                                   const std::vector<Size>& rows,
+                                   Matrix& J,
+                                   const Value& value) {
+            if (rows.empty())
+                return;
+            std::vector<Real> up(rows.size());
+            for (Size j = 1; j <= J.columns(); ++j) {
+                Real v = n.nodeValue(j);
+                Real h = 1.0e-6 * std::max(std::abs(v), 0.01);
+
+                struct RestoreNode {  // NOLINT(cppcoreguidelines-special-member-functions)
+                    const CurveJacobianNode& node;
+                    Size j;
+                    Real value;
+                    ~RestoreNode() { node.setNodeValue(j, value); }
+                } restore{n, j, v};
+
+                n.setNodeValue(j, v + h);
+                for (Size k = 0; k < rows.size(); ++k)
+                    up[k] = value(rows[k]);
+
+                n.setNodeValue(j, v - h);
+                for (Size k = 0; k < rows.size(); ++k)
+                    J[rows[k]][j - 1] =
+                        (up[k] - value(rows[k])) / (2.0 * h);
+            }
+        }
+
+        /*! Jacobian of continuous zero rates at node dates with respect to
+            free stored nodes. Unsupported rows use numerical differences.
+        */
+        inline Matrix zeroNodeJacobian(const CurveJacobianNode& n,
+                                       std::vector<bool>* analyticRows = nullptr) {
+            n.ensure();
+            std::vector<Date> dates = n.nodeDates();
+            Size rows = dates.size(), cols = n.numNodes();
+            QL_REQUIRE(rows == cols,
+                       "the curve has " << rows << " node dates but " <<
+                       cols << " free nodes");
+
+            Matrix J(rows, cols, 0.0);
+            std::vector<bool> analytic(rows, false);
+            std::vector<Real> row;
+            auto zeroAt = [&](Size i) {
+                Time t = n.curve->timeFromReference(dates[i]);
+                DiscountFactor p = n.curve->discount(dates[i], true);
+                QL_REQUIRE(t > 0.0 && p > 0.0,
+                           "cannot calculate a continuous zero rate at node " << i);
+                return -std::log(p) / t;
+            };
+            for (Size i = 0; i < rows; ++i) {
+                Time t = n.curve->timeFromReference(dates[i]);
+                DiscountFactor p = n.curve->discount(dates[i], true);
+                QL_REQUIRE(t > 0.0 && p > 0.0,
+                           "cannot calculate a continuous zero rate at node " << i);
+                std::vector<std::pair<Date, Real>> sensitivity = {
+                    {dates[i], -1.0 / (t * p)}};
+                if (n.analyticRow(sensitivity, row)) {
+                    QL_REQUIRE(row.size() == cols,
+                               "analytical zero/node row has " << row.size() <<
+                               " entries instead of " << cols);
+                    std::copy(row.begin(), row.end(), J.row_begin(i));
+                    analytic[i] = true;
+                }
+            }
+
+            std::vector<Size> numericalRows;
+            for (Size i = 0; i < rows; ++i)
+                if (!analytic[i])
+                    numericalRows.push_back(i);
+            fillNumericalNodeRows(n, numericalRows, J, zeroAt);
+
+            if (analyticRows != nullptr)
+                *analyticRows = std::move(analytic);
+            return J;
+        }
+
+        /*! Jacobian of free stored nodes with respect to continuous zero
+            rates at node dates.
+        */
+        inline Matrix nodeZeroJacobian(const CurveJacobianNode& n,
+                                       std::vector<bool>* analyticRows = nullptr) {
+            Matrix J = zeroNodeJacobian(n, analyticRows);
+            QL_REQUIRE(J.rows() == J.columns(),
+                       "cannot invert a non-square zero/node Jacobian");
+            return inverse(J);
+        }
 
         /*! Jacobian of one curve's helper quotes with respect to another
             curve's nodes. The same-curve case uses the diagonal block.
@@ -238,30 +335,9 @@ namespace QuantLib {
             for (Size i = 0; i < rows; ++i)
                 if (!analytic[i])
                     numericalRows.push_back(i);
-            if (!numericalRows.empty()) {
-                std::vector<Real> up(numericalRows.size());
-                for (Size j = 1; j <= cols; ++j) {
-                    Real v = b.nodeValue(j);
-                    Real h = 1.0e-6 * std::max(std::abs(v), 0.01);
-
-                    // restore the node after success or failure
-                    struct RestoreNode {  // NOLINT(cppcoreguidelines-special-member-functions)
-                        const CurveJacobianNode& b;
-                        Size j;
-                        Real v;
-                        ~RestoreNode() { b.setNodeValue(j, v); }
-                    } restore{b, j, v};
-
-                    b.setNodeValue(j, v + h);
-                    for (Size k = 0; k < numericalRows.size(); ++k)
-                        up[k] = helpers[numericalRows[k]]->impliedQuote();
-
-                    b.setNodeValue(j, v - h);
-                    for (Size k = 0; k < numericalRows.size(); ++k)
-                        J[numericalRows[k]][j-1] =
-                            (up[k] - helpers[numericalRows[k]]->impliedQuote())/(2.0*h);
-                }
-            }
+            fillNumericalNodeRows(
+                b, numericalRows, J,
+                [&](Size i) { return helpers[i]->impliedQuote(); });
 
             if (analyticRows != nullptr)
                 *analyticRows = analytic;

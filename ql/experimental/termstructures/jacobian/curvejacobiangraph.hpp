@@ -183,6 +183,22 @@ namespace QuantLib {
             return block;
         }
 
+        /*! Jacobian of continuously compounded zero rates at a curve's node
+            dates with respect to its free stored nodes.
+        */
+        Matrix zeroNodeJacobian(const YieldTermStructure& curve,
+                                std::vector<bool>* analyticRows = nullptr) const {
+            return detail::zeroNodeJacobian(node(curve), analyticRows);
+        }
+
+        /*! Jacobian of a curve's free stored nodes with respect to
+            continuously compounded zero rates at its node dates.
+        */
+        Matrix nodeZeroJacobian(const YieldTermStructure& curve,
+                                std::vector<bool>* analyticRows = nullptr) const {
+            return detail::nodeZeroJacobian(node(curve), analyticRows);
+        }
+
         /*! Convert node risk to par risk using the dense inverse.
             This is the reference implementation of parRisk().
         */
