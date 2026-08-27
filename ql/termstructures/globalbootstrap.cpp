@@ -48,12 +48,16 @@ void MultiCurveBootstrap::add(const MultiCurveBootstrapContributor* c) {
     c->setParentBootstrapper(shared_from_this());
 }
 
-void MultiCurveBootstrap::addObserver(TermStructure* o) {
+void MultiCurveBootstrap::addObserver(Observer* o) {
     observers_.push_back(o);
 }
 
 std::set<const TermStructure*> MultiCurveBootstrap::observerTermStructures() const {
-    return {observers_.begin(), observers_.end()};
+    std::set<const TermStructure*> result;
+    for (auto* o : observers_)
+        if (const auto* ts = dynamic_cast<const TermStructure*>(o))
+            result.insert(ts);
+    return result;
 }
 
 void MultiCurveBootstrap::setCostFunctionArguments(const Array& x,

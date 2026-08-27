@@ -67,7 +67,7 @@ class MultiCurveBootstrap : public ext::enable_shared_from_this<MultiCurveBootst
                         ext::shared_ptr<EndCriteria> endCriteria = nullptr,
                         bool analyticJacobian = false);
     void add(const MultiCurveBootstrapContributor* c);
-    void addObserver(TermStructure* o);
+    void addObserver(Observer* o);
     void runMultiCurveBootstrap();
     void setOtherContributorsToValid() const;
     void finalizeCalculation();
@@ -93,7 +93,7 @@ class MultiCurveBootstrap : public ext::enable_shared_from_this<MultiCurveBootst
     ext::shared_ptr<OptimizationMethod> optimizer_;
     ext::shared_ptr<EndCriteria> endCriteria_;
     std::vector<const MultiCurveBootstrapContributor*> contributors_;
-    std::vector<TermStructure*> observers_;
+    std::vector<Observer*> observers_;
     bool analyticJacobian_ = false;
     mutable std::optional<JacobianMetadata> jacobianMetadata_;
     // latched on the first failed analytical-Jacobian attempt of a run
