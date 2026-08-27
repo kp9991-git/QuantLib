@@ -70,83 +70,6 @@ namespace QuantLib {
             }
         }
 
-        /*! Check that every dependency reported by registered helpers belongs
-            to the supplied curve set. This diagnostic is not required before
-            calculating Jacobians. Helpers without dependency metadata make
-            closure unknown and cause this check to fail.
-        */
-        void checkClosedDependencySet() const {
-            std::set<const TermStructure*> declared = accountedCurves();
-            declared.insert(derivedIds_.begin(), derivedIds_.end());
-            detail::CurveChainRuleCalculator chainRule = chainRuleCalculator();
-
-            const std::set<const TermStructure*> terminal = accountedCurves();
-            std::function<void(const TermStructure*, std::set<const TermStructure*>&)>
-                validateDependentPath;
-            validateDependentPath = [&](const TermStructure* dependency,
-                                        std::set<const TermStructure*>& visiting) {
-                if (terminal.count(dependency) != 0)
-                    return;
-                std::vector<detail::CurveId> outgoing =
-                    chainRule.targets(dependency);
-                QL_REQUIRE(!outgoing.empty(),
-                           "a derived curve dependency was not added to "
-                           "the curve Jacobian graph");
-                QL_REQUIRE(visiting.insert(dependency).second,
-                           "cyclic dependency between unregistered curve wrappers");
-                for (const auto* target : outgoing)
-                    validateDependentPath(target, visiting);
-                visiting.erase(dependency);
-            };
-            for (const auto& wrapper : derivedCurves_) {
-                const auto* wrapperId =
-                    static_cast<const TermStructure*>(wrapper.get());
-                std::set<const TermStructure*> visiting;
-                validateDependentPath(wrapperId, visiting);
-                for (const auto* target : chainRule.targets(wrapperId))
-                    QL_REQUIRE(declared.count(target) != 0,
-                               "a derived curve references an undeclared curve");
-            }
-
-            for (Size c = 0; c < nodes_.size(); ++c) {
-                nodes_[c].ensure();
-                for (const auto* target : nodes_[c].valueDependencies.targets()) {
-                    QL_REQUIRE(target != nullptr &&
-                                   declared.count(target) != 0,
-                               "registered curve " << c <<
-                               " uses a base curve that was not added or "
-                               "discovered through a supported derived curve");
-                    std::set<const TermStructure*> visiting;
-                    validateDependentPath(target, visiting);
-                }
-                auto helpers = nodes_[c].aliveHelpers();
-                for (Size h = 0; h < helpers.size(); ++h) {
-                    QuoteSensitivities s =
-                        helpers[h]->impliedQuoteSensitivitiesByCurve();
-                    if (!s.available) {
-                        QL_FAIL("cannot establish a closed dependency set: helper " <<
-                                h << " of registered curve " << c <<
-                                " does not expose dependency metadata");
-                    }
-                    for (const auto& [dependency, entries] : s.sensitivities) {
-                        QL_REQUIRE(dependency != nullptr &&
-                                       declared.count(dependency) != 0,
-                                   "helper " << h << " of registered curve " << c <<
-                                   " references a curve that was not added or "
-                                   "discovered through a supported derived curve");
-                    }
-                    for (const auto* dependency : s.incomplete) {
-                        QL_REQUIRE(dependency != nullptr &&
-                                       declared.count(dependency) != 0,
-                                   "helper " << h << " of registered curve " << c <<
-                                   " has an incomplete contribution from a curve "
-                                   "that was not added or discovered through a "
-                                   "supported derived curve");
-                    }
-                }
-            }
-        }
-
         /*! Partial Jacobian of the first curve's helper quotes with respect
             to the second curve's nodes. Other curve nodes are fixed.
         */
@@ -333,20 +256,6 @@ namespace QuantLib {
 
         const detail::CurveJacobianNode& node(const YieldTermStructure& curve) const {
             return nodes_[index(curve)];
-        }
-
-        std::set<const TermStructure*> accountedCurves() const {
-            std::set<const TermStructure*> accounted;
-            for (const auto& n : nodes_)
-                accounted.insert(n.id);
-            return accounted;
-        }
-
-        detail::CurveChainRuleCalculator chainRuleCalculator() const {
-            auto result = derivedDependencies_;
-            for (const auto& node : nodes_)
-                result.add(node.id, node.valueDependencies);
-            return result;
         }
 
         detail::CurveCrossJacobianContext jacobianContext(bool includeAccountedCurves = true) const {

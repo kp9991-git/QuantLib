@@ -24,8 +24,9 @@
 namespace QuantLib {
 
 MultiCurveBootstrap::MultiCurveBootstrap(Real accuracy, bool analyticJacobian)
-: accuracy_(accuracy), analyticJacobian_(analyticJacobian), defaultOptimizer_(true) {
-    optimizer_ = ext::make_shared<LevenbergMarquardt>(accuracy, accuracy, accuracy);
+: analyticJacobian_(analyticJacobian) {
+    optimizer_ = ext::make_shared<LevenbergMarquardt>(accuracy, accuracy, accuracy,
+                                                      analyticJacobian);
     endCriteria_ = ext::make_shared<EndCriteria>(1000, 10, accuracy, accuracy, accuracy);
 }
 
@@ -35,11 +36,9 @@ MultiCurveBootstrap::MultiCurveBootstrap(ext::shared_ptr<OptimizationMethod> opt
 : optimizer_(std::move(optimizer)), endCriteria_(std::move(endCriteria)),
   analyticJacobian_(analyticJacobian) {
     constexpr auto accuracy = 1E-10;
-    if (optimizer_ == nullptr) {
-        optimizer_ = ext::make_shared<LevenbergMarquardt>(accuracy, accuracy, accuracy);
-        // allow an analytical-Jacobian optimizer later
-        defaultOptimizer_ = true;
-    }
+    if (optimizer_ == nullptr)
+        optimizer_ = ext::make_shared<LevenbergMarquardt>(accuracy, accuracy, accuracy,
+                                                          analyticJacobian);
     if (endCriteria_ == nullptr)
         endCriteria_ = ext::make_shared<EndCriteria>(1000, 10, accuracy, accuracy, accuracy);
 }
@@ -49,16 +48,12 @@ void MultiCurveBootstrap::add(const MultiCurveBootstrapContributor* c) {
     c->setParentBootstrapper(shared_from_this());
 }
 
-void MultiCurveBootstrap::addObserver(Observer* o) {
+void MultiCurveBootstrap::addObserver(TermStructure* o) {
     observers_.push_back(o);
 }
 
 std::set<const TermStructure*> MultiCurveBootstrap::observerTermStructures() const {
-    std::set<const TermStructure*> result;
-    for (auto* o : observers_)
-        if (const auto* ts = dynamic_cast<const TermStructure*>(o))
-            result.insert(ts);
-    return result;
+    return {observers_.begin(), observers_.end()};
 }
 
 void MultiCurveBootstrap::setCostFunctionArguments(const Array& x,
@@ -206,19 +201,14 @@ void MultiCurveBootstrap::runMultiCurveBootstrap() {
     jacobianMetadata_ = std::nullopt;
     analyticUnavailable_ = false;
 
-    ext::shared_ptr<OptimizationMethod> optimizer = optimizer_;
-    if (analyticJacobian_ && !guess.empty()) {
-        if (defaultOptimizer_)
-            optimizer = ext::make_shared<LevenbergMarquardt>(
-                accuracy_, accuracy_, accuracy_, /*useCostFunctionsJacobian=*/true);
-        QL_REQUIRE(optimizer->usesCostFunctionJacobian(),
+    if (analyticJacobian_)
+        QL_REQUIRE(optimizer_->usesCostFunctionJacobian(),
                    "the analytical Jacobian was requested, but the supplied "
                    "optimizer does not consume CostFunction::jacobian()");
-    }
 
     NoConstraint noConstraint;
     Problem problem(costFunction, noConstraint, guess);
-    EndCriteria::Type endType = optimizer->minimize(problem, *endCriteria_);
+    EndCriteria::Type endType = optimizer_->minimize(problem, *endCriteria_);
 
     QL_REQUIRE(
         EndCriteria::succeeded(endType),

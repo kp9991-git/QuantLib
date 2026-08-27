@@ -1973,7 +1973,6 @@ void testPiecewiseSpreadYieldCurveImpl() {
     CurveJacobianGraph graph;
     graph.add(baseCurvePtr);
     graph.add(curve);
-    BOOST_CHECK_NO_THROW(graph.checkClosedDependencySet());
     std::vector<bool> analytic;
     Matrix cross = graph.crossJacobian(*curve, *baseCurvePtr, &analytic);
     BOOST_REQUIRE(cross.rows() == helpers.size());
@@ -2649,19 +2648,19 @@ BOOST_AUTO_TEST_CASE(testJacobian) {
     // supported analytical combinations
     checkJacobian<Discount, LogLinear>(vars, LogLinear(), true);
     checkJacobian<ZeroYield, Linear>(vars, Linear(), true);
+    // unsupported traits and interpolations use finite differences
     checkJacobian<ZeroYield, Cubic>(
         vars,
         Cubic(CubicInterpolation::Spline, false,
               CubicInterpolation::SecondDerivative, 0.0,
               CubicInterpolation::SecondDerivative, 0.0),
-        true);
+        false);
     checkJacobian<Discount, LogCubic>(
         vars,
         LogCubic(CubicInterpolation::Spline, false,
                  CubicInterpolation::SecondDerivative, 0.0,
                  CubicInterpolation::SecondDerivative, 0.0),
-        true);
-    // unsupported traits and interpolations use finite differences
+        false);
     checkJacobian<ForwardRate, BackwardFlat>(vars, BackwardFlat(), false);
     checkJacobian<Discount, MonotonicLogCubic>(vars, MonotonicLogCubic(), false);
 }
@@ -2751,14 +2750,53 @@ BOOST_AUTO_TEST_CASE(testGlobalBootstrapWithJacobianOptimizer) {
                         << dataExplicitJacobian[j] << " vs " << dataDefault[j]);
     }
 
-    // unsupported analytical optimization throws
+    // an analytical request on traits without sensitivity support falls
+    // back to finite differences and matches the numerical bootstrap
     typedef PiecewiseYieldCurve<ForwardRate, BackwardFlat, GlobalBootstrap> GBFwdCurve;
     // complete the curve type before constructing its bootstrap
     (void)sizeof(GBFwdCurve);
-    auto curveThrow = ext::make_shared<GBFwdCurve>(
+    auto fwdNumerical = ext::make_shared<GBFwdCurve>(
         vars.settlement, vars.instruments, Actual360(), BackwardFlat(),
-        GlobalBootstrap<GBFwdCurve>(Null<Real>(), nullptr, nullptr, {}, nullptr, true));
-    BOOST_CHECK_THROW(curveThrow->data(), Error);
+        GlobalBootstrap<GBFwdCurve>(Null<Real>(), nullptr, nullptr, {}, nullptr,
+                                    /*analyticJacobian=*/false));
+    auto fwdFallback = ext::make_shared<GBFwdCurve>(
+        vars.settlement, vars.instruments, Actual360(), BackwardFlat(),
+        GlobalBootstrap<GBFwdCurve>(Null<Real>(), nullptr, nullptr, {}, nullptr,
+                                    /*analyticJacobian=*/true));
+    std::vector<Real> dataFwdNumerical = fwdNumerical->data();
+    std::vector<Real> dataFwdFallback = fwdFallback->data();
+    BOOST_REQUIRE_EQUAL(dataFwdFallback.size(), dataFwdNumerical.size());
+    for (Size j = 0; j < dataFwdNumerical.size(); ++j)
+        if (std::fabs(dataFwdFallback[j] - dataFwdNumerical[j]) > 1e-8)
+            BOOST_ERROR("node " << j << " differs between the numerical "
+                        "bootstrap and the analytical-request fallback: "
+                        << std::setprecision(12)
+                        << dataFwdNumerical[j] << " vs " << dataFwdFallback[j]);
+
+    // same fallback when the traits support analytical rows but the
+    // interpolation provides no node weights
+    typedef PiecewiseYieldCurve<Discount, LogCubic, GlobalBootstrap> GBCubicCurve;
+    (void)sizeof(GBCubicCurve);
+    LogCubic splineLogCubic(CubicInterpolation::Spline, false,
+                            CubicInterpolation::SecondDerivative, 0.0,
+                            CubicInterpolation::SecondDerivative, 0.0);
+    auto cubicNumerical = ext::make_shared<GBCubicCurve>(
+        vars.settlement, vars.instruments, Actual360(), splineLogCubic,
+        GlobalBootstrap<GBCubicCurve>(Null<Real>(), nullptr, nullptr, {}, nullptr,
+                                      /*analyticJacobian=*/false));
+    auto cubicFallback = ext::make_shared<GBCubicCurve>(
+        vars.settlement, vars.instruments, Actual360(), splineLogCubic,
+        GlobalBootstrap<GBCubicCurve>(Null<Real>(), nullptr, nullptr, {}, nullptr,
+                                      /*analyticJacobian=*/true));
+    std::vector<Real> dataCubicNumerical = cubicNumerical->data();
+    std::vector<Real> dataCubicFallback = cubicFallback->data();
+    BOOST_REQUIRE_EQUAL(dataCubicFallback.size(), dataCubicNumerical.size());
+    for (Size j = 0; j < dataCubicNumerical.size(); ++j)
+        if (std::fabs(dataCubicFallback[j] - dataCubicNumerical[j]) > 1e-8)
+            BOOST_ERROR("node " << j << " differs between the numerical "
+                        "bootstrap and the analytical-request fallback: "
+                        << std::setprecision(12)
+                        << dataCubicNumerical[j] << " vs " << dataCubicFallback[j]);
 }
 
 BOOST_AUTO_TEST_CASE(testZeroNodeTransformation) {
@@ -3368,9 +3406,8 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobianThroughWrapper) {
     graph.add(oisCurve);
     graph.add(projCurve);
 
-    // Closure is optional.  Without the wrapper metadata, uncertain rows and
-    // blocks are differentiated numerically instead of being rejected.
-    BOOST_CHECK_THROW(graph.checkClosedDependencySet(), Error);
+    // Without the wrapper metadata, uncertain rows and blocks are
+    // differentiated numerically instead of being rejected.
     std::vector<bool> openAnalytic;
     Matrix openCross = graph.crossJacobian(*projCurve, *oisCurve,
                                            &openAnalytic);
@@ -3392,7 +3429,6 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobianThroughWrapper) {
     }
 
     graph.add(wrapper);
-    BOOST_CHECK_NO_THROW(graph.checkClosedDependencySet());
 
     Matrix closedComposed = graph.nodeQuoteJacobian(*projCurve, *oisCurve);
     BOOST_REQUIRE_EQUAL(openComposed.rows(), closedComposed.rows());

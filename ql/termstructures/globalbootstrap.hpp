@@ -67,7 +67,7 @@ class MultiCurveBootstrap : public ext::enable_shared_from_this<MultiCurveBootst
                         ext::shared_ptr<EndCriteria> endCriteria = nullptr,
                         bool analyticJacobian = false);
     void add(const MultiCurveBootstrapContributor* c);
-    void addObserver(Observer* o);
+    void addObserver(TermStructure* o);
     void runMultiCurveBootstrap();
     void setOtherContributorsToValid() const;
     void finalizeCalculation();
@@ -93,10 +93,8 @@ class MultiCurveBootstrap : public ext::enable_shared_from_this<MultiCurveBootst
     ext::shared_ptr<OptimizationMethod> optimizer_;
     ext::shared_ptr<EndCriteria> endCriteria_;
     std::vector<const MultiCurveBootstrapContributor*> contributors_;
-    std::vector<Observer*> observers_;
-    Real accuracy_ = 1e-10;
+    std::vector<TermStructure*> observers_;
     bool analyticJacobian_ = false;
-    bool defaultOptimizer_ = false;
     mutable std::optional<JacobianMetadata> jacobianMetadata_;
     // latched on the first failed analytical-Jacobian attempt of a run
     mutable bool analyticUnavailable_ = false;
@@ -247,7 +245,6 @@ template <class Curve> class GlobalBootstrap final : public MultiCurveBootstrapC
     mutable std::vector<Real> aliveInstrumentWeights_;
     InitialGuessFn initialGuessFn_;
     bool analyticJacobian_ = false;
-    bool defaultOptimizer_ = false;
     mutable bool initialized_ = false, validCurve_ = false;
     mutable ext::shared_ptr<MultiCurveBootstrap> parentBootstrapper_ = nullptr;
     // latched on the first failed analytical-Jacobian attempt of a run
@@ -407,9 +404,8 @@ template <class Curve> void GlobalBootstrap<Curve>::setup(Curve* ts) {
     // setup optimizer and EndCriteria
     Real accuracy = accuracy_ != Null<Real>() ? accuracy_ : ts_->accuracy_;
     if (!optimizer_) {
-        optimizer_ = ext::make_shared<LevenbergMarquardt>(accuracy, accuracy, accuracy);
-        // allow an analytical-Jacobian optimizer later
-        defaultOptimizer_ = true;
+        optimizer_ = ext::make_shared<LevenbergMarquardt>(accuracy, accuracy, accuracy,
+                                                          analyticJacobian_);
     }
     if (!endCriteria_) {
         endCriteria_ = ext::make_shared<EndCriteria>(1000, 10, accuracy, accuracy, accuracy);
@@ -677,21 +673,14 @@ void GlobalBootstrap<Curve>::calculate() const {
 
     BootstrapCostFunction costFunction(this);
 
-    ext::shared_ptr<OptimizationMethod> optimizer = optimizer_;
     analyticUnavailable_ = false;
-    if (analyticJacobian_ && !guess.empty()) {
-        if (defaultOptimizer_) {
-            Real accuracy = accuracy_ != Null<Real>() ? accuracy_ : ts_->accuracy_;
-            optimizer = ext::make_shared<LevenbergMarquardt>(
-                accuracy, accuracy, accuracy, /*useCostFunctionsJacobian=*/true);
-        }
-        QL_REQUIRE(optimizer->usesCostFunctionJacobian(),
+    if (analyticJacobian_)
+        QL_REQUIRE(optimizer_->usesCostFunctionJacobian(),
                    "the analytical Jacobian was requested, but the supplied "
                    "optimizer does not consume CostFunction::jacobian()");
-    }
 
     Problem problem(costFunction, noConstraint, guess);
-    EndCriteria::Type endType = optimizer->minimize(problem, *endCriteria_);
+    EndCriteria::Type endType = optimizer_->minimize(problem, *endCriteria_);
     QL_REQUIRE(EndCriteria::succeeded(endType),
                "global bootstrap failed to minimize to required accuracy: " << endType);
     validCurve_ = true;

@@ -38,7 +38,6 @@ namespace QuantLib {
 
     namespace detail {
 
-        // optional traits support for analytical Jacobians
         template <class T, class Curve, class = void>
         constexpr bool hasSensitivityScale = false;
 
@@ -46,24 +45,11 @@ namespace QuantLib {
         constexpr bool hasSensitivityScale<
             T, Curve,
             std::void_t<decltype(T::sensitivityScale(
-                Time(), std::declval<const Curve*>()))>> = true;
-
-        template <class T, class Curve, class = void>
-        constexpr bool hasExtrapolationNodeWeights = false;
-
-        template <class T, class Curve>
-        constexpr bool hasExtrapolationNodeWeights<
-            T, Curve,
-            std::void_t<decltype(T::extrapolationNodeWeights(
-                Time(), std::declval<const Curve*>(),
-                std::declval<const Interpolation&>()))>> = true;
-
-        template <class T, class = void>
-        constexpr bool hasFirstDataPointFlag = false;
-
-        template <class T>
-        constexpr bool hasFirstDataPointFlag<
-            T, std::void_t<decltype(T::firstDataPointTracksSecond)>> = true;
+                            Time(), std::declval<const Curve*>())),
+                        decltype(T::extrapolationNodeWeights(
+                            Time(), std::declval<const Curve*>(),
+                            std::declval<const Interpolation&>())),
+                        decltype(T::firstDataPointTracksSecond)>> = true;
 
         // access to curve internals for cross-curve Jacobians
         template <class Curve>
@@ -81,9 +67,7 @@ namespace QuantLib {
             if constexpr (!hasSensitivityScale<Traits, Curve>) {
                 return false;
             } else {
-                bool firstTied = false;
-                if constexpr (hasFirstDataPointFlag<Traits>)
-                    firstTied = Traits::firstDataPointTracksSecond;
+                constexpr bool firstTied = Traits::firstDataPointTracksSecond;
 
                 Time tMax = times.back();
                 row.resize(times.size() - 1);
@@ -92,13 +76,10 @@ namespace QuantLib {
                     std::vector<std::pair<Size, Real>> weights;
                     if (t <= tMax) {
                         weights = interpolation.nodeWeights(t, true);
-                    } else if constexpr (
-                                   hasExtrapolationNodeWeights<Traits, Curve>) {
+                    } else {
                         // The curve tail can differ from the interpolation tail.
                         weights = Traits::extrapolationNodeWeights(
                             t, curve, interpolation);
-                    } else {
-                        return false;
                     }
                     if (weights.empty())
                         return false;
