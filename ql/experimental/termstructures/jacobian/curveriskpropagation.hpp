@@ -110,6 +110,7 @@ namespace QuantLib {
             for (Size a = 0; a < n; ++a) {
                 std::set<CurveId> referenced;
                 bool opaque = false;
+                bool unresolved = false;
                 for (const auto& helper : curves[a].aliveHelpers()) {
                     QuoteSensitivities s =
                         helper->impliedQuoteSensitivitiesByCurve();
@@ -123,11 +124,14 @@ namespace QuantLib {
                 }
                 for (const auto* target : curves[a].valueDependencies.targets())
                     referenced.insert(target);
+                for (const auto* dependency : referenced)
+                    unresolved = unresolved ||
+                                 !context.dependencyIsResolved(dependency);
 
                 for (Size b = 0; b < n; ++b) {
                     if (b == a)
                         continue;
-                    bool interacts = opaque;
+                    bool interacts = opaque || unresolved;
                     for (auto i = referenced.begin();
                          !interacts && i != referenced.end(); ++i)
                         interacts = context.dependsOn(*i, curves[b].id);

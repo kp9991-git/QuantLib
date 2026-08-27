@@ -1973,7 +1973,7 @@ void testPiecewiseSpreadYieldCurveImpl() {
     CurveJacobianGraph graph;
     graph.add(baseCurvePtr);
     graph.add(curve);
-    BOOST_CHECK_NO_THROW(graph.validateDependencies(/*requireAnalyticMetadata=*/true));
+    BOOST_CHECK_NO_THROW(graph.checkClosedDependencySet());
     std::vector<bool> analytic;
     Matrix cross = graph.crossJacobian(*curve, *baseCurvePtr, &analytic);
     BOOST_REQUIRE(cross.rows() == helpers.size());
@@ -3347,10 +3347,39 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobianThroughWrapper) {
     graph.add(oisCurve);
     graph.add(projCurve);
 
-    // An uninspected derived curve is a potentially missing dependency layer.
-    BOOST_CHECK_THROW(graph.crossJacobian(*projCurve, *oisCurve), Error);
+    // Closure is optional.  Without the wrapper metadata, uncertain rows and
+    // blocks are differentiated numerically instead of being rejected.
+    BOOST_CHECK_THROW(graph.checkClosedDependencySet(), Error);
+    std::vector<bool> openAnalytic;
+    Matrix openCross = graph.crossJacobian(*projCurve, *oisCurve,
+                                           &openAnalytic);
+    BOOST_CHECK(openAnalytic[0]);
+    BOOST_CHECK(!std::any_of(openAnalytic.begin() + 1, openAnalytic.end(),
+                             [](bool x) { return x; }));
+    Matrix openComposed = graph.nodeQuoteJacobian(*projCurve, *oisCurve);
+
+    std::map<const YieldTermStructure*, Array> nodeRisk;
+    nodeRisk[oisCurve.get()] = Array(oisCurve->data().size() - 1, 1.0);
+    nodeRisk[projCurve.get()] = Array(projCurve->data().size() - 1, -2.0);
+    auto openPar = graph.parRisk(nodeRisk);
+    auto openDense = graph.parRiskDense(nodeRisk);
+    for (const auto& [curve, risk] : openPar) {
+        const Array& expected = openDense.at(curve);
+        BOOST_REQUIRE_EQUAL(risk.size(), expected.size());
+        for (Size i = 0; i < risk.size(); ++i)
+            BOOST_CHECK_SMALL(risk[i] - expected[i], 1.0e-8);
+    }
+
     graph.add(wrapper);
-    BOOST_CHECK_NO_THROW(graph.validateDependencies(/*requireAnalyticMetadata=*/true));
+    BOOST_CHECK_NO_THROW(graph.checkClosedDependencySet());
+
+    Matrix closedComposed = graph.nodeQuoteJacobian(*projCurve, *oisCurve);
+    BOOST_REQUIRE_EQUAL(openComposed.rows(), closedComposed.rows());
+    BOOST_REQUIRE_EQUAL(openComposed.columns(), closedComposed.columns());
+    for (Size i = 0; i < openComposed.rows(); ++i)
+        for (Size j = 0; j < openComposed.columns(); ++j)
+            BOOST_CHECK_SMALL(openComposed[i][j] - closedComposed[i][j],
+                              1.0e-8);
 
     // The same add() entry point rejects a derived curve whose underlying
     // curve cannot be inspected through its public C++ interface.
@@ -3359,7 +3388,12 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobianThroughWrapper) {
     BOOST_CHECK_THROW(graph.add(opaqueWrapper), Error);
 
     std::vector<bool> analytic;
-    graph.crossJacobian(*projCurve, *oisCurve, &analytic);
+    Matrix closedCross = graph.crossJacobian(*projCurve, *oisCurve, &analytic);
+    BOOST_REQUIRE_EQUAL(openCross.rows(), closedCross.rows());
+    BOOST_REQUIRE_EQUAL(openCross.columns(), closedCross.columns());
+    for (Size i = 0; i < openCross.rows(); ++i)
+        for (Size j = 0; j < openCross.columns(); ++j)
+            BOOST_CHECK_SMALL(openCross[i][j] - closedCross[i][j], 1.0e-8);
     for (Size i = 0; i < analytic.size(); ++i) {
         if (analytic[i])
             BOOST_ERROR("cross-Jacobian row " << i << " through the wrapper "

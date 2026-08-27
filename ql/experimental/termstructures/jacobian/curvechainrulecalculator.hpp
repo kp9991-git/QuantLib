@@ -228,6 +228,12 @@ namespace QuantLib {
                         numericallyPropagatedCurves_.count(curve) == 0);
             }
 
+            bool dependencyIsResolved(CurveId curve) const {
+                return accountedCurves_.count(curve) != 0 ||
+                       (unlistedCurvesAreIndependent_ &&
+                        numericallyPropagatedCurves_.count(curve) == 0);
+            }
+
             bool dependsOn(CurveId source, CurveId target) const {
                 return chainRule_.dependsOn(source, target);
             }

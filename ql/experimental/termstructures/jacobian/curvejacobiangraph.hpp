@@ -69,11 +69,12 @@ namespace QuantLib {
             }
         }
 
-        /*! Validate dependencies reported by registered helpers.
-            When requireAnalyticMetadata is true, reject helpers without
-            sensitivity metadata. Otherwise they can use numerical rows.
+        /*! Check that every dependency reported by registered helpers belongs
+            to the supplied curve set. This diagnostic is not required before
+            calculating Jacobians. Helpers without dependency metadata make
+            closure unknown and cause this check to fail.
         */
-        void validateDependencies(bool requireAnalyticMetadata = false) const {
+        void checkClosedDependencySet() const {
             std::set<const TermStructure*> declared = accountedCurves();
             declared.insert(derivedIds_.begin(), derivedIds_.end());
             detail::CurveChainRuleCalculator chainRule = chainRuleCalculator();
@@ -122,10 +123,9 @@ namespace QuantLib {
                     QuoteSensitivities s =
                         helpers[h]->impliedQuoteSensitivitiesByCurve();
                     if (!s.available) {
-                        QL_REQUIRE(!requireAnalyticMetadata,
-                                   "helper " << h << " of registered curve " << c <<
-                                   " does not expose dependency metadata");
-                        continue;
+                        QL_FAIL("cannot establish a closed dependency set: helper " <<
+                                h << " of registered curve " << c <<
+                                " does not expose dependency metadata");
                     }
                     for (const auto& [dependency, entries] : s.sensitivities) {
                         QL_REQUIRE(dependency != nullptr &&
@@ -152,7 +152,6 @@ namespace QuantLib {
         Matrix crossJacobian(const YieldTermStructure& of,
                              const YieldTermStructure& withRespectTo,
             std::vector<bool>* analyticRows = nullptr) const {
-            validateDependencies();
             detail::CurveCrossJacobianContext context = jacobianContext();
             return detail::curveCrossJacobian(node(of), node(withRespectTo),
                                               context, analyticRows);
@@ -164,7 +163,6 @@ namespace QuantLib {
         Matrix nodeQuoteJacobian(const YieldTermStructure& of,
                                  const YieldTermStructure& withRespectTo,
                                  std::vector<bool>* analyticRows = nullptr) const {
-            validateDependencies();
             Size a = index(of), b = index(withRespectTo);
             std::vector<Size> rowOffsets, colOffsets;
             std::vector<bool> allAnalytic;
@@ -205,7 +203,6 @@ namespace QuantLib {
         std::map<const YieldTermStructure*, Array>
         parRiskDense(const std::map<const YieldTermStructure*, Array>& nodeRisk,
                      std::vector<bool>* analyticRows = nullptr) const {
-            validateDependencies();
             std::vector<Size> rowOffsets, colOffsets;
             std::vector<bool> allAnalytic;
             detail::CurveCrossJacobianContext context = jacobianContext(false);
@@ -246,7 +243,6 @@ namespace QuantLib {
                 std::map<const YieldTermStructure*, Array>* zeroRisk,
                 std::map<const YieldTermStructure*, Array>* parRisk,
                 std::vector<bool>* analyticRows = nullptr) const {
-            validateDependencies();
             detail::CurveCrossJacobianContext context = jacobianContext(false);
             detail::CurveJacobianBlocks blocks =
                 detail::curveJacobianBlocks(nodes_, context);
