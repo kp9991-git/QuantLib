@@ -185,6 +185,7 @@ set(QL_SOURCES
     experimental/swaptions/irregularswaption.cpp
     experimental/termstructures/basisswapratehelpers.cpp
     experimental/termstructures/crosscurrencyratehelpers.cpp
+    experimental/termstructures/overnightindexedfundingratehelper.cpp
     experimental/termstructures/quotesensitivitycalculator.cpp
     experimental/variancegamma/analyticvariancegammaengine.cpp
     experimental/variancegamma/fftengine.cpp
@@ -1245,6 +1246,7 @@ set(QL_HEADERS
     experimental/termstructures/jacobian/curvecrossjacobian.hpp
     experimental/termstructures/jacobian/curvejacobiangraph.hpp
     experimental/termstructures/jacobian/curveriskpropagation.hpp
+    experimental/termstructures/overnightindexedfundingratehelper.hpp
     experimental/termstructures/quotesensitivitycalculator.hpp
     experimental/variancegamma/analyticvariancegammaengine.hpp
     experimental/variancegamma/fftengine.hpp
