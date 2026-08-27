@@ -8,11 +8,13 @@ this_include_HEADERS = \
     all.hpp \
     basisswapratehelpers.hpp \
     crosscurrencyratehelpers.hpp \
+    overnightindexedfundingratehelper.hpp \
     quotesensitivitycalculator.hpp
 
 cpp_files = \
     basisswapratehelpers.cpp \
     crosscurrencyratehelpers.cpp \
+    overnightindexedfundingratehelper.cpp \
     quotesensitivitycalculator.cpp
 
 

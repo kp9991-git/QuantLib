@@ -4500,6 +4500,9 @@
     <ClInclude Include="ql\experimental\termstructures\jacobian\curveriskpropagation.hpp">
       <Filter>experimental\termstructures\jacobian</Filter>
     </ClInclude>
+    <ClInclude Include="ql\experimental\termstructures\overnightindexedfundingratehelper.hpp">
+      <Filter>experimental\termstructures</Filter>
+    </ClInclude>
     <ClInclude Include="ql\experimental\termstructures\quotesensitivitycalculator.hpp">
       <Filter>experimental\termstructures</Filter>
     </ClInclude>
@@ -7421,6 +7424,9 @@
       <Filter>experimental\termstructures</Filter>
     </ClCompile>
     <ClCompile Include="ql\experimental\termstructures\crosscurrencyratehelpers.cpp">
+      <Filter>experimental\termstructures</Filter>
+    </ClCompile>
+    <ClCompile Include="ql\experimental\termstructures\overnightindexedfundingratehelper.cpp">
       <Filter>experimental\termstructures</Filter>
     </ClCompile>
     <ClCompile Include="ql\experimental\termstructures\quotesensitivitycalculator.cpp">
