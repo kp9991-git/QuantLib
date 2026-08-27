@@ -28,7 +28,7 @@
 
 #include <ql/patterns/lazyobject.hpp>
 #include <ql/math/matrix.hpp>
-#include <ql/experimental/termstructures/jacobian/curvecrossjacobian.hpp>
+#include <ql/experimental/termstructures/jacobian/curveriskpropagation.hpp>
 #include <ql/termstructures/iterativebootstrap.hpp>
 #include <ql/termstructures/globalbootstrap.hpp>
 #include <ql/termstructures/multicurve.hpp>
@@ -255,22 +255,20 @@ namespace QuantLib {
             auto group = bootstrap_.jacobianGroup();
             if (!group.members.empty()) {
                 // differentiate known dependent wrappers numerically
-                std::vector<Size> rowOffsets;
                 detail::CurveCrossJacobianContext context;
                 context.addNumericallyPropagatedCurves(group.dependents);
                 context.assumeUnlistedCurvesIndependent();
-                Matrix S = detail::groupNodeQuoteJacobian(
-                    group.members, &rowOffsets, nullptr, analyticRows,
-                    context);
                 QL_REQUIRE(group.target < group.members.size(),
                            "invalid target curve in Jacobian group");
-                Size first = rowOffsets[group.target];
-                Size last = rowOffsets[group.target + 1];
-                Matrix result(last - first, S.columns());
-                for (Size j = 0; j < result.rows(); ++j)
-                    std::copy(S.row_begin(first + j), S.row_end(first + j),
-                              result.row_begin(j));
-                return result;
+                detail::CurveJacobianBlocks blocks =
+                    detail::curveJacobianBlocks(group.members, context);
+                if (analyticRows != nullptr) {
+                    analyticRows->clear();
+                    for (const auto& flags : blocks.analyticQuotes)
+                        analyticRows->insert(analyticRows->end(),
+                                             flags.begin(), flags.end());
+                }
+                return detail::inverseCurveJacobianRows(blocks, group.target);
             }
         }
         return detail::inverseBootstrapEquationJacobian(jacobian(analyticRows));

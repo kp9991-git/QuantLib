@@ -174,86 +174,103 @@ namespace QuantLib {
             std::vector<Array> quoteRisk;
         };
 
-        //! solve a square full-rank system by column-pivoted QR
-        inline Array checkedQrSolve(const Matrix& a,
-                                    const Array& b,
-                                    const char* description) {
+        struct CheckedQrFactorization {
+            Matrix q;
+            Matrix r;
+            std::vector<Size> pivot;
+        };
+
+        //! factor a square full-rank system by column-pivoted QR
+        inline CheckedQrFactorization checkedQrFactorization(
+                const Matrix& a,
+                const char* description) {
             QL_REQUIRE(a.rows() == a.columns(),
                        description << " is not square: " << a.rows() <<
                        " rows and " << a.columns() << " columns");
-            QL_REQUIRE(b.size() == a.rows(),
-                       description << " right-hand side has " << b.size() <<
-                       " entries for " << a.rows() << " equations");
 
             const Size n = a.rows();
+            CheckedQrFactorization result{Matrix(n, n), Matrix(n, n), {}};
             if (n == 0)
-                return {};
+                return result;
 
-            Matrix q(n, n), r(n, n);
-            std::vector<Size> pivot = qrDecomposition(a, q, r, true);
+            result.pivot = qrDecomposition(a, result.q, result.r, true);
             Real largest = 0.0;
             for (Size i = 0; i < n; ++i)
-                largest = std::max(largest, std::fabs(r[i][i]));
+                largest = std::max(largest, std::fabs(result.r[i][i]));
             QL_REQUIRE(largest > 0.0,
                        description << " is rank deficient (all QR diagonals "
                                    << "are zero)");
             const Real tolerance =
                 largest * n * std::numeric_limits<Real>::epsilon();
             for (Size i = 0; i < n; ++i)
-                QL_REQUIRE(std::fabs(r[i][i]) > tolerance,
+                QL_REQUIRE(std::fabs(result.r[i][i]) > tolerance,
                            description << " is rank deficient at diagonal " <<
-                           i << " (|Rii|=" << std::fabs(r[i][i]) <<
+                           i << " (|Rii|=" << std::fabs(result.r[i][i]) <<
                            ", tolerance=" << tolerance << ")");
+            return result;
+        }
 
-            Array y = transpose(q) * b;
+        //! solve square full-rank systems by column-pivoted QR
+        inline Matrix checkedQrSolve(const Matrix& a,
+                                     const Matrix& b,
+                                     const char* description) {
+            QL_REQUIRE(b.rows() == a.rows(),
+                       description << " right-hand side has " << b.rows() <<
+                       " rows for " << a.rows() << " equations");
+            CheckedQrFactorization factorization =
+                checkedQrFactorization(a, description);
+
+            const Size n = a.rows();
+            if (n == 0)
+                return Matrix(0, b.columns());
+            Matrix y = transpose(factorization.q) * b;
+            for (Size ii = n; ii > 0; --ii) {
+                const Size i = ii - 1;
+                for (Size k = 0; k < b.columns(); ++k) {
+                    for (Size j = i + 1; j < n; ++j)
+                        y[i][k] -= factorization.r[i][j] * y[j][k];
+                    y[i][k] /= factorization.r[i][i];
+                }
+            }
+
+            Matrix x(n, b.columns());
+            for (Size i = 0; i < n; ++i)
+                std::copy(y.row_begin(i), y.row_end(i),
+                          x.row_begin(factorization.pivot[i]));
+            return x;
+        }
+
+        //! solve one square full-rank system by column-pivoted QR
+        inline Array checkedQrSolve(const Matrix& a,
+                                    const Array& b,
+                                    const char* description) {
+            QL_REQUIRE(b.size() == a.rows(),
+                       description << " right-hand side has " << b.size() <<
+                       " entries for " << a.rows() << " equations");
+            CheckedQrFactorization factorization =
+                checkedQrFactorization(a, description);
+
+            const Size n = a.rows();
+            if (n == 0)
+                return {};
+            Array y = transpose(factorization.q) * b;
             for (Size ii = n; ii > 0; --ii) {
                 const Size i = ii - 1;
                 for (Size j = i + 1; j < n; ++j)
-                    y[i] -= r[i][j] * y[j];
-                y[i] /= r[i][i];
+                    y[i] -= factorization.r[i][j] * y[j];
+                y[i] /= factorization.r[i][i];
             }
 
             Array x(n);
             for (Size i = 0; i < n; ++i)
-                x[pivot[i]] = y[i];
+                x[factorization.pivot[i]] = y[i];
             return x;
         }
 
-        /*! Solve \f$ J^T r=s \f$ by dependency component. When requested,
-            zero risk fixes each curve while the others re-solve. Empty risk
-            arrays are treated as zero.
-        */
-    inline CurveRiskPropagation propagateCurveNodeRisk(
-        const CurveJacobianBlocks& blocks,
-                               const std::vector<Array>& directNodeRisk,
-                               bool computeZeroRisk) {
-            Size n = blocks.size();
-            QL_REQUIRE(directNodeRisk.size() == n,
-                       "node risk was given for " << directNodeRisk.size() <<
-                       " curves but the group holds " << n);
-
-            CurveRiskPropagation result;
-            result.nodeRisk.resize(n);
-            result.quoteRisk.resize(n);
-            for (Size i = 0; i < n; ++i) {
-                Size nodes = blocks.numNodes(i);
-                QL_REQUIRE(directNodeRisk[i].empty() ||
-                               directNodeRisk[i].size() == nodes,
-                           "node risk size (" << directNodeRisk[i].size() <<
-                           ") does not match the number of curve nodes (" <<
-                           nodes << ")");
-                result.nodeRisk[i] = directNodeRisk[i].empty()
-                                         ? Array(nodes, 0.0)
-                                         : directNodeRisk[i];
-                result.quoteRisk[i] = Array(blocks.numQuotes(i), 0.0);
-            }
-
-            std::vector<std::vector<Size>> dependents(n);
-            for (Size a = 0; a < n; ++a)
-                for (Size b : blocks.dependsOn[a])
-                    dependents[b].push_back(a);
-
-            // strongly connected components with dependencies emitted first
+        //! dependency components, with dependents before their dependencies
+        inline std::vector<std::vector<Size>>
+        curveDependencyComponents(const CurveJacobianBlocks& blocks) {
+            const Size n = blocks.size();
             std::vector<Size> order(n, 0), low(n, 0), stack;
             std::vector<bool> onStack(n, false);
             std::vector<std::vector<Size>> components;
@@ -285,11 +302,190 @@ namespace QuantLib {
             for (Size v = 0; v < n; ++v)
                 if (order[v] == 0)
                     visit(v);
-            // solve dependents before their dependencies
             std::reverse(components.begin(), components.end());
+            return components;
+        }
+
+        //! solve \f$ J^T R=S \f$ for multiple node-risk scenarios
+        /*! Each matrix has nodes or quotes in rows and scenarios in columns.
+            Components with zero right-hand sides are not factored.
+        */
+        inline std::vector<Matrix> propagateCurveNodeRiskMatrix(
+                const CurveJacobianBlocks& blocks,
+                const std::vector<Matrix>& directNodeRisk) {
+            const Size n = blocks.size();
+            QL_REQUIRE(directNodeRisk.size() == n,
+                       "node risk was given for " << directNodeRisk.size() <<
+                       " curves but the group holds " << n);
+
+            Size scenarios = 0;
+            if (!directNodeRisk.empty())
+                scenarios = directNodeRisk.front().columns();
+            std::vector<Matrix> nodeRisk = directNodeRisk;
+            std::vector<Matrix> quoteRisk(n);
+            for (Size i = 0; i < n; ++i) {
+                QL_REQUIRE(nodeRisk[i].rows() == blocks.numNodes(i),
+                           "node risk has " << nodeRisk[i].rows() <<
+                           " rows for a curve with " << blocks.numNodes(i) <<
+                           " nodes");
+                QL_REQUIRE(nodeRisk[i].columns() == scenarios,
+                           "node-risk matrices have different numbers of scenarios");
+                quoteRisk[i] = Matrix(blocks.numQuotes(i), scenarios, 0.0);
+            }
+
+            std::vector<std::vector<Size>> dependents(n);
+            for (Size a = 0; a < n; ++a)
+                for (Size b : blocks.dependsOn[a])
+                    dependents[b].push_back(a);
 
             std::vector<bool> solved(n, false);
-            for (const auto& component : components) {
+            for (const auto& component : curveDependencyComponents(blocks)) {
+                for (Size b : component)
+                    for (Size a : dependents[b])
+                        if (solved[a])
+                            nodeRisk[b] -= transpose(*blocks.block(a, b)) *
+                                           quoteRisk[a];
+
+                bool active = false;
+                for (Size b : component)
+                    active = active || std::any_of(
+                        nodeRisk[b].begin(), nodeRisk[b].end(),
+                        [](Real x) { return x != 0.0; });
+                if (!active) {
+                    for (Size b : component)
+                        solved[b] = true;
+                    continue;
+                }
+
+                std::vector<Size> rowOffset(component.size() + 1, 0);
+                std::vector<Size> colOffset(component.size() + 1, 0);
+                for (Size i = 0; i < component.size(); ++i) {
+                    rowOffset[i + 1] =
+                        rowOffset[i] + blocks.numQuotes(component[i]);
+                    colOffset[i + 1] =
+                        colOffset[i] + blocks.numNodes(component[i]);
+                }
+                QL_REQUIRE(rowOffset.back() == colOffset.back(),
+                           "cannot propagate curve risk through a dependency "
+                           "component with " << rowOffset.back() <<
+                           " helper quotes and " << colOffset.back() <<
+                           " free nodes");
+
+                Matrix jc(rowOffset.back(), colOffset.back(), 0.0);
+                for (Size i = 0; i < component.size(); ++i)
+                    for (Size j = 0; j < component.size(); ++j) {
+                        const Matrix* A =
+                            blocks.block(component[i], component[j]);
+                        if (A == nullptr)
+                            continue;
+                        for (Size r = 0; r < A->rows(); ++r)
+                            std::copy(A->row_begin(r), A->row_end(r),
+                                      jc.row_begin(rowOffset[i] + r) +
+                                          colOffset[j]);
+                    }
+
+                Matrix rhs(colOffset.back(), scenarios, 0.0);
+                for (Size i = 0; i < component.size(); ++i)
+                    for (Size r = 0; r < nodeRisk[component[i]].rows(); ++r)
+                        std::copy(nodeRisk[component[i]].row_begin(r),
+                                  nodeRisk[component[i]].row_end(r),
+                                  rhs.row_begin(colOffset[i] + r));
+
+                Matrix result = checkedQrSolve(
+                    transpose(jc), rhs, "curve-risk Jacobian component");
+                for (Size i = 0; i < component.size(); ++i)
+                    for (Size r = 0; r < quoteRisk[component[i]].rows(); ++r)
+                        std::copy(result.row_begin(rowOffset[i] + r),
+                                  result.row_end(rowOffset[i] + r),
+                                  quoteRisk[component[i]].row_begin(r));
+                for (Size b : component)
+                    solved[b] = true;
+            }
+            return quoteRisk;
+        }
+
+        //! quote-risk matrices for unit risks on one curve's nodes
+        inline std::vector<Matrix> inverseCurveJacobianQuoteRisk(
+                const CurveJacobianBlocks& blocks,
+                Size nodeCurve) {
+            QL_REQUIRE(nodeCurve < blocks.size(),
+                       "curve index outside the Jacobian group");
+            const Size scenarios = blocks.numNodes(nodeCurve);
+            std::vector<Matrix> direct(blocks.size());
+            for (Size i = 0; i < blocks.size(); ++i)
+                direct[i] = Matrix(blocks.numNodes(i), scenarios, 0.0);
+            for (Size i = 0; i < scenarios; ++i)
+                direct[nodeCurve][i][i] = 1.0;
+            return propagateCurveNodeRiskMatrix(blocks, direct);
+        }
+
+        //! selected block of the inverse full bootstrap-equation Jacobian
+        inline Matrix inverseCurveJacobianBlock(
+                const CurveJacobianBlocks& blocks,
+                Size nodeCurve,
+                Size quoteCurve) {
+            QL_REQUIRE(quoteCurve < blocks.size(),
+                       "curve index outside the Jacobian group");
+            return transpose(
+                inverseCurveJacobianQuoteRisk(blocks, nodeCurve)[quoteCurve]);
+        }
+
+        //! all quote columns for selected rows of the inverse Jacobian
+        inline Matrix inverseCurveJacobianRows(
+                const CurveJacobianBlocks& blocks,
+                Size nodeCurve) {
+            QL_REQUIRE(nodeCurve < blocks.size(),
+                       "curve index outside the Jacobian group");
+            const Size scenarios = blocks.numNodes(nodeCurve);
+            std::vector<Matrix> quoteRisk =
+                inverseCurveJacobianQuoteRisk(blocks, nodeCurve);
+
+            Matrix result(scenarios, blocks.quoteOffset.back(), 0.0);
+            for (Size b = 0; b < blocks.size(); ++b) {
+                Matrix block = transpose(quoteRisk[b]);
+                for (Size i = 0; i < scenarios; ++i)
+                    std::copy(block.row_begin(i), block.row_end(i),
+                              result.row_begin(i) + blocks.quoteOffset[b]);
+            }
+            return result;
+        }
+
+        /*! Solve \f$ J^T r=s \f$ by dependency component. When requested,
+            zero risk fixes each curve while the others re-solve. Empty risk
+            arrays are treated as zero.
+        */
+        inline CurveRiskPropagation propagateCurveNodeRisk(
+                const CurveJacobianBlocks& blocks,
+                const std::vector<Array>& directNodeRisk,
+                bool computeZeroRisk) {
+            Size n = blocks.size();
+            QL_REQUIRE(directNodeRisk.size() == n,
+                       "node risk was given for " << directNodeRisk.size() <<
+                       " curves but the group holds " << n);
+
+            CurveRiskPropagation result;
+            result.nodeRisk.resize(n);
+            result.quoteRisk.resize(n);
+            for (Size i = 0; i < n; ++i) {
+                Size nodes = blocks.numNodes(i);
+                QL_REQUIRE(directNodeRisk[i].empty() ||
+                               directNodeRisk[i].size() == nodes,
+                           "node risk size (" << directNodeRisk[i].size() <<
+                           ") does not match the number of curve nodes (" <<
+                           nodes << ")");
+                result.nodeRisk[i] = directNodeRisk[i].empty()
+                                         ? Array(nodes, 0.0)
+                                         : directNodeRisk[i];
+                result.quoteRisk[i] = Array(blocks.numQuotes(i), 0.0);
+            }
+
+            std::vector<std::vector<Size>> dependents(n);
+            for (Size a = 0; a < n; ++a)
+                for (Size b : blocks.dependsOn[a])
+                    dependents[b].push_back(a);
+
+            std::vector<bool> solved(n, false);
+            for (const auto& component : curveDependencyComponents(blocks)) {
                 // risk from curves already solved
                 for (Size b : component)
                     for (Size a : dependents[b])

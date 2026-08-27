@@ -81,31 +81,57 @@ namespace QuantLib {
                                               context, analyticRows);
         }
 
-        /*! Jacobian of the first curve's nodes with respect to the second
-            curve's helper quotes, including all registered dependencies.
-            The block comes from the inverse of the full stacked system, so
-            one numerical row anywhere contaminates every entry; the flags
+        /*! Block of the inverse Jacobian for the registered curve system.
+            Rows are the first curve's nodes and columns are the second
+            curve's helper quotes. All registered dependencies are included.
+            One numerical row anywhere contaminates every entry, so the flags
             are all true only when the whole group is analytical.
         */
-        Matrix nodeQuoteJacobian(const YieldTermStructure& of,
-                                 const YieldTermStructure& withRespectTo,
-                                 std::vector<bool>* analyticRows = nullptr) const {
+        Matrix inverseJacobian(const YieldTermStructure& of,
+                               const YieldTermStructure& withRespectTo,
+                               std::vector<bool>* analyticRows = nullptr) const {
+            Size a = index(of), b = index(withRespectTo);
+            detail::CurveCrossJacobianContext context = jacobianContext(false);
+            detail::CurveJacobianBlocks blocks =
+                detail::curveJacobianBlocks(nodes_, context);
+            Matrix block = detail::inverseCurveJacobianBlock(blocks, a, b);
+            if (analyticRows != nullptr) {
+                bool clean = true;
+                for (const auto& flags : blocks.analyticQuotes)
+                    clean = clean && std::all_of(
+                        flags.begin(), flags.end(), [](bool f) { return f; });
+                analyticRows->assign(blocks.numQuotes(b), clean);
+            }
+            return block;
+        }
+
+        /*! Block of the dense inverse Jacobian for the registered curve
+            system. This is the reference implementation of inverseJacobian().
+        */
+        Matrix inverseJacobianDense(
+                const YieldTermStructure& of,
+                const YieldTermStructure& withRespectTo,
+                std::vector<bool>* analyticRows = nullptr) const {
             Size a = index(of), b = index(withRespectTo);
             std::vector<Size> rowOffsets, colOffsets;
             std::vector<bool> allAnalytic;
             detail::CurveCrossJacobianContext context = jacobianContext(false);
-            Matrix S = detail::groupNodeQuoteJacobian(nodes_, &rowOffsets, &colOffsets,
-                                                      &allAnalytic, context);
-            Matrix block(rowOffsets[a+1] - rowOffsets[a],
-                         colOffsets[b+1] - colOffsets[b]);
+            Matrix inverse = detail::curveGroupInverseJacobian(
+                nodes_, &rowOffsets, &colOffsets, &allAnalytic, context);
+
+            Matrix block(rowOffsets[a + 1] - rowOffsets[a],
+                         colOffsets[b + 1] - colOffsets[b]);
             for (Size i = 0; i < block.rows(); ++i)
-                std::copy(S.row_begin(rowOffsets[a] + i) + colOffsets[b],
-                          S.row_begin(rowOffsets[a] + i) + colOffsets[b+1],
-                          block.row_begin(i));
+                std::copy(
+                    inverse.row_begin(rowOffsets[a] + i) + colOffsets[b],
+                    inverse.row_begin(rowOffsets[a] + i) + colOffsets[b + 1],
+                    block.row_begin(i));
+
             if (analyticRows != nullptr) {
-                bool clean = std::all_of(allAnalytic.begin(), allAnalytic.end(),
-                                         [](bool f) { return f; });
-                analyticRows->assign(colOffsets[b+1] - colOffsets[b], clean);
+                bool clean = std::all_of(allAnalytic.begin(),
+                                         allAnalytic.end(),
+                                         [](bool flag) { return flag; });
+                analyticRows->assign(block.columns(), clean);
             }
             return block;
         }
@@ -135,8 +161,8 @@ namespace QuantLib {
             std::vector<Size> rowOffsets, colOffsets;
             std::vector<bool> allAnalytic;
             detail::CurveCrossJacobianContext context = jacobianContext(false);
-            Matrix S = detail::groupNodeQuoteJacobian(nodes_, &rowOffsets, &colOffsets,
-                                                      &allAnalytic, context);
+            Matrix S = detail::curveGroupInverseJacobian(
+                nodes_, &rowOffsets, &colOffsets, &allAnalytic, context);
             if (analyticRows != nullptr)
                 *analyticRows = std::move(allAnalytic);
 

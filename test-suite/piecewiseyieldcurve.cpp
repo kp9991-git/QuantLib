@@ -131,7 +131,7 @@ void checkZeroNodeTransformation(bool expectedAnalytic) {
             BOOST_CHECK_SMALL(identity[i][j] - (i == j ? 1.0 : 0.0),
                               1.0e-8);
 
-    Matrix nodeQuote = graph.nodeQuoteJacobian(*curve, *curve);
+    Matrix inverse = graph.inverseJacobian(*curve, *curve);
     std::vector<Date> dates(curve->dates().begin() + 1,
                             curve->dates().end());
     const Real h = 1.0e-6;
@@ -155,7 +155,7 @@ void checkZeroNodeTransformation(bool expectedAnalytic) {
             Real expected = (up[i] - down[i]) / (2.0 * h);
             Real calculated = 0.0;
             for (Size j = 0; j < nodes; ++j)
-                calculated += zeroNode[i][j] * nodeQuote[j][k];
+                calculated += zeroNode[i][j] * inverse[j][k];
             BOOST_CHECK_SMALL(calculated - expected, 2.0e-5);
         }
     }
@@ -2881,11 +2881,21 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobian) {
         std::vector<Matrix> S;
         for (auto& x : curves) {
             std::vector<bool> blockAnalytic;
-            S.push_back(graph.nodeQuoteJacobian(*x.curve, *y.curve,
-                                                &blockAnalytic));
+            S.push_back(graph.inverseJacobian(*x.curve, *y.curve,
+                                              &blockAnalytic));
             BOOST_REQUIRE(blockAnalytic.size() == y.quotes->size());
             BOOST_CHECK(std::all_of(blockAnalytic.begin(), blockAnalytic.end(),
                                     [](bool flag) { return flag; }));
+
+            std::vector<bool> denseAnalytic;
+            Matrix dense = graph.inverseJacobianDense(
+                *x.curve, *y.curve, &denseAnalytic);
+            BOOST_REQUIRE_EQUAL(dense.rows(), S.back().rows());
+            BOOST_REQUIRE_EQUAL(dense.columns(), S.back().columns());
+            BOOST_CHECK(denseAnalytic == blockAnalytic);
+            for (Size i = 0; i < dense.rows(); ++i)
+                for (Size j = 0; j < dense.columns(); ++j)
+                    BOOST_CHECK_SMALL(dense[i][j] - S.back()[i][j], 1.0e-10);
         }
         for (Size k = 0; k < y.quotes->size(); ++k) {
             auto& quote = (*y.quotes)[k];
@@ -2930,6 +2940,36 @@ BOOST_AUTO_TEST_CASE(testCurveRiskPropagation) {
                           singular, Array(2, 1.0), "test Jacobian"),
                       Error);
 
+    // Multiple right-hand sides reuse one factorization.
+    Matrix diagonal(2, 2, 0.0);
+    diagonal[0][0] = 2.0;
+    diagonal[1][1] = 4.0;
+    Matrix rhs(2, 2);
+    rhs[0][0] = 2.0;
+    rhs[0][1] = 4.0;
+    rhs[1][0] = 8.0;
+    rhs[1][1] = 12.0;
+    Matrix solution = detail::checkedQrSolve(
+        diagonal, rhs, "test Jacobian");
+    BOOST_CHECK_SMALL(solution[0][0] - 1.0, 1.0e-12);
+    BOOST_CHECK_SMALL(solution[0][1] - 2.0, 1.0e-12);
+    BOOST_CHECK_SMALL(solution[1][0] - 2.0, 1.0e-12);
+    BOOST_CHECK_SMALL(solution[1][1] - 3.0, 1.0e-12);
+
+    // An unrelated singular component is not factored when extracting a
+    // block from another component.
+    detail::CurveJacobianBlocks disconnected;
+    disconnected.nodeOffset = {0, 1, 2};
+    disconnected.quoteOffset = {0, 1, 2};
+    disconnected.own = {Matrix(1, 1, 2.0), Matrix(1, 1, 0.0)};
+    disconnected.dependsOn = {{}, {}};
+    disconnected.analyticQuotes = {{true}, {true}};
+    Matrix selected =
+        detail::inverseCurveJacobianBlock(disconnected, 0, 0);
+    BOOST_REQUIRE_EQUAL(selected.rows(), 1);
+    BOOST_REQUIRE_EQUAL(selected.columns(), 1);
+    BOOST_CHECK_SMALL(selected[0][0] - 0.5, 1.0e-12);
+
     // Par risk needs only the full system. A reduced zero-risk system can be
     // singular even when the full system is not.
     detail::CurveJacobianBlocks cycle;
@@ -2956,6 +2996,18 @@ BOOST_AUTO_TEST_CASE(testCurveRiskPropagation) {
     coupled.coupling[{1, 0}] = Matrix(1, 1, -0.25);
     detail::CurveRiskPropagation propagated =
         detail::propagateCurveNodeRisk(coupled, cycleRisk, true);
+
+    Matrix full(2, 2);
+    full[0][0] = 2.0;
+    full[0][1] = 0.5;
+    full[1][0] = -0.25;
+    full[1][1] = 1.5;
+    Matrix fullInverse = inverse(full);
+    for (Size a = 0; a < 2; ++a)
+        for (Size b = 0; b < 2; ++b) {
+            Matrix block = detail::inverseCurveJacobianBlock(coupled, a, b);
+            BOOST_CHECK_SMALL(block[0][0] - fullInverse[a][b], 1.0e-12);
+        }
 
     const Real nodeBump = 1.0e-6;
     auto shiftedValue = [&](Size fixed, Real shift) {
@@ -3179,8 +3231,8 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobianWithLogLinearExtrapolation) {
     // The analytic graph result must still reproduce full quote bumps.  This
     // compares d(projection node)/d(discount quote), so it exercises both the
     // extrapolated cross block above and the discount curve's own Jacobian.
-    Matrix composed = graph.nodeQuoteJacobian(*projectionCurve,
-                                               *discountCurve);
+    Matrix composed = graph.inverseJacobian(*projectionCurve,
+                                            *discountCurve);
     const Real h = 1.0e-6;
     const Real tolerance = 1.0e-5;
     for (Size k = 0; k < discountQuotes.size(); ++k) {
@@ -3414,7 +3466,7 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobianThroughWrapper) {
     BOOST_CHECK(openAnalytic[0]);
     BOOST_CHECK(!std::any_of(openAnalytic.begin() + 1, openAnalytic.end(),
                              [](bool x) { return x; }));
-    Matrix openComposed = graph.nodeQuoteJacobian(*projCurve, *oisCurve);
+    Matrix openComposed = graph.inverseJacobian(*projCurve, *oisCurve);
 
     std::map<const YieldTermStructure*, Array> nodeRisk;
     nodeRisk[oisCurve.get()] = Array(oisCurve->data().size() - 1, 1.0);
@@ -3430,7 +3482,7 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobianThroughWrapper) {
 
     graph.add(wrapper);
 
-    Matrix closedComposed = graph.nodeQuoteJacobian(*projCurve, *oisCurve);
+    Matrix closedComposed = graph.inverseJacobian(*projCurve, *oisCurve);
     BOOST_REQUIRE_EQUAL(openComposed.rows(), closedComposed.rows());
     BOOST_REQUIRE_EQUAL(openComposed.columns(), closedComposed.columns());
     for (Size i = 0; i < openComposed.rows(); ++i)
@@ -3462,8 +3514,8 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobianThroughWrapper) {
     // inverse uses the whole group, its block is not wholly analytical when
     // any equation row was differentiated numerically.
     std::vector<bool> composedAnalytic;
-    Matrix S = graph.nodeQuoteJacobian(*projCurve, *oisCurve,
-                                       &composedAnalytic);
+    Matrix S = graph.inverseJacobian(*projCurve, *oisCurve,
+                                     &composedAnalytic);
     BOOST_CHECK(std::none_of(composedAnalytic.begin(), composedAnalytic.end(),
                              [](bool flag) { return flag; }));
     Real h = 1.0e-6, tolerance = 1.0e-5;

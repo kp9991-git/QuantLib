@@ -370,7 +370,7 @@ namespace QuantLib {
             return J;
         }
 
-        /*! Node sensitivities to all helper quotes for a curve group.
+        /*! Inverse Jacobian for a curve group.
 
               \f[ \sum_P J_{XP} \, dz_P = dq_X \f]
 
@@ -378,11 +378,12 @@ namespace QuantLib {
             Optional offsets include the final total. A quote is analytical
             only when all its blocks are analytical.
         */
-        inline Matrix groupNodeQuoteJacobian(const std::vector<CurveJacobianNode>& curves,
-                                             std::vector<Size>* rowOffsets = nullptr,
-                                             std::vector<Size>* colOffsets = nullptr,
-                                             std::vector<bool>* analyticRows = nullptr,
-                                             const CurveCrossJacobianContext& baseContext = {}) {
+        inline Matrix curveGroupInverseJacobian(
+                const std::vector<CurveJacobianNode>& curves,
+                std::vector<Size>* rowOffsets = nullptr,
+                std::vector<Size>* colOffsets = nullptr,
+                std::vector<bool>* analyticRows = nullptr,
+                const CurveCrossJacobianContext& baseContext = {}) {
             Size n = curves.size();
             std::vector<Size> nodeOffset(n + 1, 0), quoteOffset(n + 1, 0);
             CurveCrossJacobianContext context = baseContext;
