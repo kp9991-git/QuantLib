@@ -144,8 +144,7 @@ namespace QuantLib {
         return - (swap_->NPV() / swap_->legBPS(0)) * 1.0e-4;
     }
 
-    QuoteSensitivities
-    IborIborBasisSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
+    QuoteSensitivities IborIborBasisSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr || discountHandle_.empty())
             return {};
         // the bootstrapped curve forecasts one leg only
@@ -303,8 +302,7 @@ namespace QuantLib {
         return - (swap_->NPV() / swap_->legBPS(leg)) * 1.0e-4;
     }
 
-    QuoteSensitivities
-    OvernightIborBasisSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
+    QuoteSensitivities OvernightIborBasisSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr || discountRelinkableHandle_.empty())
             return {};
         // the margin is solved on the leg whose annuity impliedQuote() uses
@@ -446,8 +444,7 @@ namespace QuantLib {
         return -(swap_->NPV() / swap_->legBPS(0)) * 1.0e-4;
     }
 
-    QuoteSensitivities
-    OvernightOvernightBasisSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
+    QuoteSensitivities OvernightOvernightBasisSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr || discountRelinkableHandle_.empty())
             return {};
         return detail::fairBasisSensitivities(

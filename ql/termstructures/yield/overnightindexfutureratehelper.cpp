@@ -91,8 +91,7 @@ namespace QuantLib {
         return future_->NPV();
     }
 
-    QuoteSensitivities
-    OvernightIndexFutureRateHelper::impliedQuoteSensitivitiesByCurve() const {
+    QuoteSensitivities OvernightIndexFutureRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr)
             return {};
 

@@ -106,8 +106,7 @@ namespace QuantLib {
                 Real w = (x-this->xBegin_[i])/(this->xBegin_[i+1]-this->xBegin_[i]);
                 return {{i, 1.0-w}, {i+1, w}};
             }
-            std::vector<std::pair<Size, Real>>
-            derivativeNodeWeights(Real x) const override {
+            std::vector<std::pair<Size, Real>> derivativeNodeWeights(Real x) const override {
                 Size i = this->locate(x);
                 Real inverseDx =
                     1.0/(this->xBegin_[i+1]-this->xBegin_[i]);

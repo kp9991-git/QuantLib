@@ -83,8 +83,7 @@ namespace QuantLib {
                 for the nodes affecting x. An empty vector means the
                 interpolation does not provide derivative sensitivities.
             */
-            virtual std::vector<std::pair<Size, Real>>
-            derivativeNodeWeights(Real) const {
+            virtual std::vector<std::pair<Size, Real>> derivativeNodeWeights(Real) const {
                 return {};
             }
         };
@@ -160,8 +159,8 @@ namespace QuantLib {
             interpolant's extension, which might differ from a caller's
             extrapolation.
         */
-        std::vector<std::pair<Size, Real>>
-        nodeWeights(Real x, bool allowExtrapolation = false) const {
+        std::vector<std::pair<Size, Real>> nodeWeights(
+            Real x, bool allowExtrapolation = false) const {
             checkRange(x,allowExtrapolation);
             return impl_->nodeWeights(x);
         }
@@ -171,8 +170,8 @@ namespace QuantLib {
             implemented. Outside the range, weights describe the
             extrapolation.
         */
-        std::vector<std::pair<Size, Real>>
-        derivativeNodeWeights(Real x, bool allowExtrapolation = false) const {
+        std::vector<std::pair<Size, Real>> derivativeNodeWeights(
+            Real x, bool allowExtrapolation = false) const {
             checkRange(x,allowExtrapolation);
             return impl_->derivativeNodeWeights(x);
         }

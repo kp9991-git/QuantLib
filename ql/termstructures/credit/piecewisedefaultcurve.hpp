@@ -190,16 +190,11 @@ namespace QuantLib {
         */
         Matrix jacobian(std::vector<bool>* analyticRows = nullptr) const {
             calculate();
-            if (!jacobianCacheValid_) {
-                jacobianCache_ = detail::bootstrapEquationJacobian<Traits>(
+            return jacobianCache_.get(analyticRows, [this](std::vector<bool>* rows) {
+                return detail::bootstrapEquationJacobian<Traits>(
                     this, instruments_, this->times_, this->data_,
-                this->interpolation_, !this->jumpDates().empty(),
-                    &jacobianAnalyticRows_);
-                jacobianCacheValid_ = true;
-            }
-            if (analyticRows != nullptr)
-                *analyticRows = jacobianAnalyticRows_;
-            return jacobianCache_;
+                    this->interpolation_, !this->jumpDates().empty(), rows);
+            });
         }
         //! Jacobian of curve nodes with respect to helper quotes
         Matrix inverseJacobian(std::vector<bool>* analyticRows = nullptr) const {
@@ -230,9 +225,7 @@ namespace QuantLib {
         friend class Bootstrap<this_curve>;
         template <class> friend struct detail::BootstrapJacobianAccess;
         Bootstrap<this_curve> bootstrap_;
-        mutable bool jacobianCacheValid_ = false;
-        mutable Matrix jacobianCache_;
-        mutable std::vector<bool> jacobianAnalyticRows_;
+        detail::BootstrapJacobianCache jacobianCache_;
     };
 
 
@@ -274,7 +267,7 @@ namespace QuantLib {
 
     template <class C, class I, template <class> class B>
     inline void PiecewiseDefaultCurve<C,I,B>::update() {
-        jacobianCacheValid_ = false;
+        jacobianCache_.invalidate();
         // it dispatches notifications only if (!calculated_ && !frozen_)
         LazyObject::update();
 

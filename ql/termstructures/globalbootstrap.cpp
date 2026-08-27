@@ -105,8 +105,15 @@ class MultiCurveBootstrap::StackedCostFunction : public CostFunction {
         return result;
     }
     void jacobian(Matrix& jac, const Array& x) const override {
-        if (!(b_->analyticJacobian_ && b_->analyticCostJacobian(jac, x, guessSizes_)))
-            CostFunction::jacobian(jac, x);
+        // analyticJacobian is advisory: when the analytical Jacobian is
+        // unavailable, fall back to numerical differentiation; the latch
+        // keeps a permanently failing path from being retried and paid
+        // for on every iteration
+        if (b_->analyticJacobian_ && !b_->analyticUnavailable_ &&
+            b_->analyticCostJacobian(jac, x, guessSizes_))
+            return;
+        b_->analyticUnavailable_ = true;
+        CostFunction::jacobian(jac, x);
     }
   private:
     const MultiCurveBootstrap* b_;
@@ -119,49 +126,63 @@ bool MultiCurveBootstrap::analyticCostJacobian(Matrix& jac,
     Size n = contributors_.size();
     setCostFunctionArguments(x, guessSizes);
 
-    // gather contributor metadata and validate dimensions
-    std::vector<detail::CurveJacobianNode> nodes(n);
-    std::vector<Array> weights(n), dT(n);
-    std::vector<Size> resOffset(n + 1, 0), varOffset(n + 1, 0);
-    for (Size i = 0; i < n; ++i) {
-        nodes[i] = contributors_[i]->jacobianNode();
-        if (nodes[i].curve == nullptr)
-            return false;
-        weights[i] = contributors_[i]->residualWeights();
-        if (weights[i].empty() || weights[i].size() != nodes[i].aliveHelpers().size())
-            return false;
-        Array xi(guessSizes[i]);
-        std::copy(x.begin() + varOffset[i], x.begin() + varOffset[i] + guessSizes[i],
-                  xi.begin());
-        dT[i] = contributors_[i]->transformDerivatives(xi);
-        if (dT[i].size() != guessSizes[i] || nodes[i].numNodes() != guessSizes[i])
-            return false;
-        resOffset[i + 1] = resOffset[i] + weights[i].size();
-        varOffset[i + 1] = varOffset[i] + guessSizes[i];
+    // gather x-independent contributor metadata once per bootstrap run
+    if (!jacobianMetadata_) {
+        JacobianMetadata m;
+        m.nodes.resize(n);
+        m.weights.resize(n);
+        m.resOffset.assign(n + 1, 0);
+        m.varOffset.assign(n + 1, 0);
+        for (Size i = 0; i < n; ++i) {
+            m.nodes[i] = contributors_[i]->jacobianNode();
+            if (m.nodes[i].curve == nullptr)
+                return false;
+            m.weights[i] = contributors_[i]->residualWeights();
+            if (m.weights[i].empty() ||
+                m.weights[i].size() != m.nodes[i].aliveHelpers().size())
+                return false;
+            if (m.nodes[i].numNodes() != guessSizes[i])
+                return false;
+            m.resOffset[i + 1] = m.resOffset[i] + m.weights[i].size();
+            m.varOffset[i + 1] = m.varOffset[i] + guessSizes[i];
+        }
+        // known dependent wrappers require numerical propagation
+        m.context.addNumericallyPropagatedCurves(observerTermStructures());
+        m.context.assumeUnlistedCurvesIndependent();
+        for (const auto& node : m.nodes)
+            m.context.addCurve(node.id, node.valueDependencies);
+        jacobianMetadata_.emplace(std::move(m));
     }
-    if (jac.rows() != resOffset[n] || jac.columns() != varOffset[n])
-        return false;
+    const JacobianMetadata& m = *jacobianMetadata_;
 
-    // known dependent wrappers require numerical propagation
-    detail::CurveCrossJacobianContext context;
-    context.addNumericallyPropagatedCurves(observerTermStructures());
-    context.assumeUnlistedCurvesIndependent();
-    for (const auto& node : nodes)
-        context.addCurve(node.id, node.valueDependencies);
+    std::vector<Array> dT(n);
+    for (Size i = 0; i < n; ++i) {
+        Array xi(guessSizes[i]);
+        std::copy(x.begin() + m.varOffset[i],
+                  x.begin() + m.varOffset[i] + guessSizes[i], xi.begin());
+        dT[i] = contributors_[i]->transformDerivatives(xi);
+        if (dT[i].size() != guessSizes[i])
+            return false;
+    }
+    if (jac.rows() != m.resOffset[n] || jac.columns() != m.varOffset[n])
+        return false;
 
     // differentiate w_i * (quote_i - impliedQuote_i) through curve nodes
     for (Size i = 0; i < n; ++i) {
+        std::vector<QuoteSensitivities> rowSensitivities =
+            detail::aliveHelperSensitivities(m.nodes[i]);
         for (Size j = 0; j < n; ++j) {
             std::vector<bool> analytic;
-            Matrix Jq = detail::curveCrossJacobian(nodes[i], nodes[j],
-                                                   context, &analytic);
+            Matrix Jq = detail::curveCrossJacobian(m.nodes[i], m.nodes[j],
+                                                   m.context, &analytic,
+                                                   &rowSensitivities);
             for (auto flag : analytic)  // NOLINT(readability-use-anyofallof)
                 if (!flag)
                     return false;
             for (Size r = 0; r < Jq.rows(); ++r)
                 for (Size c = 0; c < Jq.columns(); ++c)
-                    jac[resOffset[i] + r][varOffset[j] + c] =
-                        -weights[i][r] * Jq[r][c] * dT[j][c];
+                    jac[m.resOffset[i] + r][m.varOffset[j] + c] =
+                        -m.weights[i][r] * Jq[r][c] * dT[j][c];
         }
     }
     return true;
@@ -181,12 +202,12 @@ void MultiCurveBootstrap::runMultiCurveBootstrap() {
     StackedCostFunction costFunction(this, guessSizes);
     Array guess(globalGuess.begin(), globalGuess.end());
 
+    // metadata can change between runs (evaluation date, helpers)
+    jacobianMetadata_ = std::nullopt;
+    analyticUnavailable_ = false;
+
     ext::shared_ptr<OptimizationMethod> optimizer = optimizer_;
     if (analyticJacobian_ && !guess.empty()) {
-        Matrix probe(costFunction.values(guess).size(), guess.size(), 0.0);
-        QL_REQUIRE(analyticCostJacobian(probe, guess, guessSizes),
-                   "the analytical Jacobian was requested, but it is not "
-                   "available for this multi-curve bootstrap");
         if (defaultOptimizer_)
             optimizer = ext::make_shared<LevenbergMarquardt>(
                 accuracy_, accuracy_, accuracy_, /*useCostFunctionsJacobian=*/true);

@@ -102,6 +102,13 @@ namespace QuantLib {
             An empty vector means sensitivities are unavailable and triggers
             numerical differentiation. The default implementation extracts
             the bootstrapped curve from impliedQuoteSensitivitiesByCurve().
+
+            Buckets keyed by other term structures make the own-curve
+            dependency ambiguous: an apparently exogenous handle can wrap
+            the curve being bootstrapped. In that case the default returns
+            no sensitivities and lets the caller differentiate the row
+            numerically. Helpers that can prove independence can override
+            this method with a more precise implementation.
         */
         virtual std::vector<std::pair<Time, Real>> impliedQuoteSensitivities() const {
             if (termStructure_ == nullptr)
@@ -110,6 +117,12 @@ namespace QuantLib {
             const auto* own = static_cast<const TermStructure*>(termStructure_);
             if (!s.available || s.incomplete.count(own) != 0)
                 return {};
+            for (const auto& [curve, entries] : s.sensitivities)
+                if (curve != own && !entries.empty())
+                    return {};
+            for (const auto* curve : s.incomplete)
+                if (curve != own)
+                    return {};
             auto i = s.sensitivities.find(own);
             if (i == s.sensitivities.end())
                 return {};

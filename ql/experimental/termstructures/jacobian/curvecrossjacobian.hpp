@@ -168,7 +168,7 @@ namespace QuantLib {
                 };
                 n.setNodeValue = [curve](Size j, Real v) {
                     // preserve interpolation iterators
-                    curve->jacobianCacheValid_ = false;
+                    curve->jacobianCache_.invalidate();
                     Traits::updateGuess(curve->data_, v, j);
                     curve->interpolation_.update();
                 };
@@ -267,26 +267,52 @@ namespace QuantLib {
             return inverse(J);
         }
 
+        //! implied-quote sensitivities of a curve's alive helpers, in row order
+        /*! Hoist this out of loops over column curves: the result is
+            identical for every column curve of the same row curve.
+        */
+    inline std::vector<QuoteSensitivities> aliveHelperSensitivities(const CurveJacobianNode& n) {
+            auto helpers = n.aliveHelpers();
+            std::vector<QuoteSensitivities> result;
+            result.reserve(helpers.size());
+            for (const auto& helper : helpers)
+                result.push_back(helper->impliedQuoteSensitivitiesByCurve());
+            return result;
+        }
+
         /*! Jacobian of one curve's helper quotes with respect to another
             curve's nodes. The same-curve case uses the diagonal block.
             Unsupported rows are differentiated numerically. Analytical rows
-            require complete dependency transforms.
+            require complete dependency transforms. The optional
+            rowSensitivities avoid recomputing helper sensitivities per
+            column curve; entries must follow a's alive helpers.
         */
         inline Matrix curveCrossJacobian(const CurveJacobianNode& a,
                                          const CurveJacobianNode& b,
                                          const CurveCrossJacobianContext& context,
-                                         std::vector<bool>* analyticRows = nullptr) {
+                                         std::vector<bool>* analyticRows = nullptr,
+                                         const std::vector<QuoteSensitivities>*
+                                             rowSensitivities = nullptr) {
             a.ensure();
             b.ensure();
             auto helpers = a.aliveHelpers();
             Size rows = helpers.size();
             Size cols = b.numNodes();
+            QL_REQUIRE(rowSensitivities == nullptr ||
+                           rowSensitivities->size() == rows,
+                       "cached helper sensitivities have " <<
+                       (rowSensitivities == nullptr ? 0 : rowSensitivities->size()) <<
+                       " rows instead of " << rows);
             Matrix J(rows, cols, 0.0);
             std::vector<bool> analytic(rows, false);
 
             std::vector<Real> row;
             for (Size i = 0; i < rows; ++i) {
-                auto s = helpers[i]->impliedQuoteSensitivitiesByCurve();
+                QuoteSensitivities fetched;
+                if (rowSensitivities == nullptr)
+                    fetched = helpers[i]->impliedQuoteSensitivitiesByCurve();
+                const QuoteSensitivities& s = rowSensitivities != nullptr
+                    ? (*rowSensitivities)[i] : fetched;
                 if (!s.available || s.incomplete.count(b.id) != 0)
                     continue;
                 bool allAccounted = true;
@@ -374,10 +400,13 @@ namespace QuantLib {
             Matrix J(quoteOffset[n], nodeOffset[n], 0.0);
             std::vector<bool> analytic(quoteOffset[n], true);
             for (Size i = 0; i < n; ++i) {
+                std::vector<QuoteSensitivities> rowSensitivities =
+                    aliveHelperSensitivities(curves[i]);
                 for (Size j = 0; j < n; ++j) {
                     std::vector<bool> blockFlags;
                     Matrix block = curveCrossJacobian(curves[i], curves[j],
-                                                      context, &blockFlags);
+                                                      context, &blockFlags,
+                                                      &rowSensitivities);
                     for (Size r = 0; r < block.rows(); ++r) {
                         std::copy(block.row_begin(r), block.row_end(r),
                                   J.row_begin(quoteOffset[i] + r) + nodeOffset[j]);

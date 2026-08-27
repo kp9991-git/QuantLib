@@ -28,6 +28,7 @@
 #include <ql/math/matrix.hpp>
 #include <ql/experimental/termstructures/jacobian/curveriskpropagation.hpp>
 #include <ql/termstructures/yieldtermstructure.hpp>
+#include <algorithm>
 #include <functional>
 #include <map>
 #include <utility>
@@ -159,6 +160,9 @@ namespace QuantLib {
 
         /*! Jacobian of the first curve's nodes with respect to the second
             curve's helper quotes, including all registered dependencies.
+            The block comes from the inverse of the full stacked system, so
+            one numerical row anywhere contaminates every entry; the flags
+            are all true only when the whole group is analytical.
         */
         Matrix nodeQuoteJacobian(const YieldTermStructure& of,
                                  const YieldTermStructure& withRespectTo,
@@ -175,9 +179,11 @@ namespace QuantLib {
                 std::copy(S.row_begin(rowOffsets[a] + i) + colOffsets[b],
                           S.row_begin(rowOffsets[a] + i) + colOffsets[b+1],
                           block.row_begin(i));
-            if (analyticRows != nullptr)
-                *analyticRows = std::vector<bool>(allAnalytic.begin() + colOffsets[b],
-                                                  allAnalytic.begin() + colOffsets[b+1]);
+            if (analyticRows != nullptr) {
+                bool clean = std::all_of(allAnalytic.begin(), allAnalytic.end(),
+                                         [](bool f) { return f; });
+                analyticRows->assign(colOffsets[b+1] - colOffsets[b], clean);
+            }
             return block;
         }
 
@@ -200,8 +206,8 @@ namespace QuantLib {
         /*! Convert node risk to par risk using the dense inverse.
             This is the reference implementation of parRisk().
         */
-        std::map<const YieldTermStructure*, Array>
-        parRiskDense(const std::map<const YieldTermStructure*, Array>& nodeRisk,
+        std::map<const YieldTermStructure*, Array> parRiskDense(
+            const std::map<const YieldTermStructure*, Array>& nodeRisk,
                      std::vector<bool>* analyticRows = nullptr) const {
             std::vector<Size> rowOffsets, colOffsets;
             std::vector<bool> allAnalytic;
@@ -282,8 +288,8 @@ namespace QuantLib {
             following the dependency graph. Input keys must be registered and
             arrays must match node counts.
         */
-        std::map<const YieldTermStructure*, Array>
-        zeroRisk(const std::map<const YieldTermStructure*, Array>& nodeRisk,
+        std::map<const YieldTermStructure*, Array> zeroRisk(
+            const std::map<const YieldTermStructure*, Array>& nodeRisk,
                  std::vector<bool>* analyticRows = nullptr) const {
             std::map<const YieldTermStructure*, Array> result;
             propagateNodeRisk(nodeRisk, &result, nullptr, analyticRows);
@@ -293,8 +299,8 @@ namespace QuantLib {
         /*! Convert node risk to par-instrument risk for all registered curves.
             Input keys must be registered and arrays must match node counts.
         */
-        std::map<const YieldTermStructure*, Array>
-        parRisk(const std::map<const YieldTermStructure*, Array>& nodeRisk,
+        std::map<const YieldTermStructure*, Array> parRisk(
+            const std::map<const YieldTermStructure*, Array>& nodeRisk,
                 std::vector<bool>* analyticRows = nullptr) const {
             std::map<const YieldTermStructure*, Array> result;
             propagateNodeRisk(nodeRisk, nullptr, &result, analyticRows);
@@ -343,8 +349,7 @@ namespace QuantLib {
             return result;
         }
 
-        detail::CurveCrossJacobianContext
-        jacobianContext(bool includeAccountedCurves = true) const {
+        detail::CurveCrossJacobianContext jacobianContext(bool includeAccountedCurves = true) const {
             detail::CurveCrossJacobianContext result;
             result.addDependencies(derivedDependencies_);
             result.addNumericallyPropagatedCurves(derivedIds_);

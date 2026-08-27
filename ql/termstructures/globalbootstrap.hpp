@@ -33,6 +33,7 @@
 #include <ql/utilities/null_deleter.hpp>
 #include <algorithm>
 #include <functional>
+#include <optional>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -82,6 +83,13 @@ class MultiCurveBootstrap : public ext::enable_shared_from_this<MultiCurveBootst
     bool analyticCostJacobian(Matrix& jac,
                               const Array& x,
                               const std::vector<Size>& guessSizes) const;
+    // x-independent Jacobian inputs, cached across optimizer iterations
+    struct JacobianMetadata {
+        std::vector<detail::CurveJacobianNode> nodes;
+        std::vector<Array> weights;
+        std::vector<Size> resOffset, varOffset;
+        detail::CurveCrossJacobianContext context;
+    };
     ext::shared_ptr<OptimizationMethod> optimizer_;
     ext::shared_ptr<EndCriteria> endCriteria_;
     std::vector<const MultiCurveBootstrapContributor*> contributors_;
@@ -89,6 +97,9 @@ class MultiCurveBootstrap : public ext::enable_shared_from_this<MultiCurveBootst
     Real accuracy_ = 1e-10;
     bool analyticJacobian_ = false;
     bool defaultOptimizer_ = false;
+    mutable std::optional<JacobianMetadata> jacobianMetadata_;
+    // latched on the first failed analytical-Jacobian attempt of a run
+    mutable bool analyticUnavailable_ = false;
 };
 
 class AdditionalBootstrapVariables {
@@ -122,8 +133,11 @@ class AdditionalBootstrapVariables {
   helpers, for example, convexity adjustments for futures. See SimpleQuoteVariables
   for a concrete implementation of this interface.
 
-  The analyticJacobian parameter controls whether the optimization uses the
-  analytical Jacobian of the cost function. If an optimizer is supplied, it
+  The analyticJacobian parameter is advisory: the optimization uses the
+  analytical Jacobian of the cost function when it is available and falls
+  back to numerical differentiation otherwise (for example, for traits
+  without sensitivity support, additional penalties or variables, or
+  helpers without sensitivity metadata). If an optimizer is supplied, it
   must report that it consumes CostFunction::jacobian().
 
   WARNING: This class is known to work with Traits Discount, ZeroYield, Forward,
@@ -178,6 +192,11 @@ template <class Curve> class GlobalBootstrap final : public MultiCurveBootstrapC
     template <class T, class = void>
     static constexpr bool hasGlobalGuess = false;
 
+    // detect the cache itself rather than assuming every jacobian() provider
+    // uses the built-in cache representation
+    template <class T, class = void>
+    static constexpr bool hasBootstrapJacobianCache = false;
+
     void initialize() const;
     void
     setParentBootstrapper(const ext::shared_ptr<MultiCurveBootstrap>& b) const override;
@@ -200,8 +219,15 @@ template <class Curve> class GlobalBootstrap final : public MultiCurveBootstrapC
             return b_->evaluateCostFunction();
         }
         void jacobian(Matrix& jac, const Array& x) const override {
-            if (!(b_->analyticJacobian_ && b_->analyticCostJacobian(jac, x)))
-                CostFunction::jacobian(jac, x);
+            // analyticJacobian is advisory: when the analytical Jacobian
+            // is unavailable, fall back to numerical differentiation; the
+            // latch keeps a permanently failing path from being retried
+            // and paid for on every iteration
+            if (b_->analyticJacobian_ && !b_->analyticUnavailable_ &&
+                b_->analyticCostJacobian(jac, x))
+                return;
+            b_->analyticUnavailable_ = true;
+            CostFunction::jacobian(jac, x);
         }
       private:
         const GlobalBootstrap<Curve>* b_;
@@ -224,6 +250,8 @@ template <class Curve> class GlobalBootstrap final : public MultiCurveBootstrapC
     bool defaultOptimizer_ = false;
     mutable bool initialized_ = false, validCurve_ = false;
     mutable ext::shared_ptr<MultiCurveBootstrap> parentBootstrapper_ = nullptr;
+    // latched on the first failed analytical-Jacobian attempt of a run
+    mutable bool analyticUnavailable_ = false;
 };
 
 // template definitions
@@ -239,6 +267,12 @@ template <class T>
 constexpr bool GlobalBootstrap<Curve>::hasGlobalGuess<
     T,
     std::void_t<decltype(T::globalGuess(std::declval<const Curve*>(), true))>> = true;
+
+template <class Curve>
+template <class T>
+constexpr bool GlobalBootstrap<Curve>::hasBootstrapJacobianCache<
+    T,
+    std::void_t<decltype(std::declval<const T&>().jacobianCache_.invalidate())>> = true;
 
 template <class Curve>
 GlobalBootstrap<Curve>::GlobalBootstrap(Real accuracy,
@@ -576,6 +610,9 @@ void GlobalBootstrap<Curve>::setCostFunctionArgument(const Array& x) const {
         Traits::updateGuess(ts_->data_, value, i + 1);
     }
     ts_->interpolation_.update();
+    // the curve nodes changed behind the curve's back
+    if constexpr (hasBootstrapJacobianCache<Curve>)
+        ts_->jacobianCache_.invalidate();
     if (additionalVariables_) {
         additionalVariables_->update(Array(x.begin() + ts_->times_.size() - 1, x.end()));
     }
@@ -615,16 +652,10 @@ bool GlobalBootstrap<Curve>::analyticCostJacobian(Matrix& jac, const Array& x) c
                 return false;
 
         // cost values are w_i * (quote_i - impliedQuote_i)
+        Array dTransform = transformDerivatives(x);
         for (Size j = 0; j < J.columns(); ++j) {
-            Real dTransform = 1.0;
-            if constexpr (hasTransform<Traits>) {
-                // variable-transform derivative
-                Real h = 1.0e-7 * std::max(std::abs(x[j]), 1.0);
-                dTransform = (Traits::transformDirect(x[j] + h, j + 1, ts_) -
-                              Traits::transformDirect(x[j] - h, j + 1, ts_)) / (2.0 * h);
-            }
             for (Size i = 0; i < J.rows(); ++i)
-                jac[i][j] = -aliveInstrumentWeights_[i] * J[i][j] * dTransform;
+                jac[i][j] = -aliveInstrumentWeights_[i] * J[i][j] * dTransform[j];
         }
         return true;
     }
@@ -647,13 +678,8 @@ void GlobalBootstrap<Curve>::calculate() const {
     BootstrapCostFunction costFunction(this);
 
     ext::shared_ptr<OptimizationMethod> optimizer = optimizer_;
+    analyticUnavailable_ = false;
     if (analyticJacobian_ && !guess.empty()) {
-        Matrix probe(aliveInstruments_.size(), ts_->times_.size() - 1, 0.0);
-        bool available = probe.rows() > 0 && probe.columns() == guess.size() &&
-                         analyticCostJacobian(probe, guess);
-        QL_REQUIRE(available,
-                   "the analytical Jacobian was requested, "
-                   "but it is not available for this curve");
         if (defaultOptimizer_) {
             Real accuracy = accuracy_ != Null<Real>() ? accuracy_ : ts_->accuracy_;
             optimizer = ext::make_shared<LevenbergMarquardt>(

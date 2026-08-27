@@ -116,8 +116,7 @@ namespace QuantLib {
                 else
                     return {{i+1, 1.0}};
             }
-            std::vector<std::pair<Size, Real>>
-            derivativeNodeWeights(Real) const override {
+            std::vector<std::pair<Size, Real>> derivativeNodeWeights(Real) const override {
                 // A non-empty zero weight distinguishes an implemented zero
                 // derivative from unavailable node sensitivities.
                 return {{Size(0), 0.0}};

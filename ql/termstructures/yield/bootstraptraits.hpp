@@ -146,8 +146,8 @@ namespace QuantLib {
             return 1.0;
         }
         template <class C>
-        static std::vector<std::pair<Size, Real>>
-        extrapolationNodeWeights(Time t, const C* c,
+        static std::vector<std::pair<Size, Real>> extrapolationNodeWeights(
+            Time t, const C* c,
                                  const Interpolation& interpolation) {
             // InterpolatedDiscountCurve extrapolates with the instantaneous
             // forward at its last node. Its tail therefore depends on both
@@ -281,8 +281,8 @@ namespace QuantLib {
             return -t * c->discount(t, true);
         }
         template <class C>
-        static std::vector<std::pair<Size, Real>>
-        extrapolationNodeWeights(Time t, const C* c,
+        static std::vector<std::pair<Size, Real>> extrapolationNodeWeights(
+            Time t, const C* c,
                                  const Interpolation& interpolation) {
             Time tMax = c->times().back();
             auto valueWeights = interpolation.nodeWeights(tMax, true);
@@ -508,8 +508,8 @@ namespace QuantLib {
             return -t * d * d;
         }
         template <class C>
-        static std::vector<std::pair<Size, Real>>
-        extrapolationNodeWeights(Time t, const C* c,
+        static std::vector<std::pair<Size, Real>> extrapolationNodeWeights(
+            Time t, const C* c,
                                  const Interpolation& interpolation) {
             Time tMax = c->times().back();
             auto valueWeights = interpolation.nodeWeights(tMax, true);

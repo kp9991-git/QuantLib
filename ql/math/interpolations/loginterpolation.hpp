@@ -408,8 +408,7 @@ namespace QuantLib {
                     w.second *= v/this->yBegin_[w.first];
                 return weights;
             }
-            std::vector<std::pair<Size, Real>>
-            derivativeNodeWeights(Real x) const override {
+            std::vector<std::pair<Size, Real>> derivativeNodeWeights(Real x) const override {
                 // f = exp(g), with g interpolating log(y), hence
                 // d(f')/d(y_j) = f/y_j * (g' w_j + w'_j).
                 auto valueWeights = interpolation_.nodeWeights(x, true);

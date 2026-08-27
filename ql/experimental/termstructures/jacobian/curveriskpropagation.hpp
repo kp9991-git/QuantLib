@@ -86,8 +86,8 @@ namespace QuantLib {
             Helpers without dependency metadata are treated as reaching every
             curve and are differentiated numerically.
         */
-        inline CurveJacobianBlocks
-        curveJacobianBlocks(const std::vector<CurveJacobianNode>& curves,
+    inline CurveJacobianBlocks curveJacobianBlocks(
+        const std::vector<CurveJacobianNode>& curves,
                             const CurveCrossJacobianContext& baseContext = {}) {
             Size n = curves.size();
             CurveJacobianBlocks blocks;
@@ -111,9 +111,13 @@ namespace QuantLib {
                 std::set<CurveId> referenced;
                 bool opaque = false;
                 bool unresolved = false;
-                for (const auto& helper : curves[a].aliveHelpers()) {
-                    QuoteSensitivities s =
-                        helper->impliedQuoteSensitivitiesByCurve();
+                auto helpers = curves[a].aliveHelpers();
+                std::vector<QuoteSensitivities> rowSensitivities;
+                rowSensitivities.reserve(helpers.size());
+                for (const auto& helper : helpers) {
+                    rowSensitivities.push_back(
+                        helper->impliedQuoteSensitivitiesByCurve());
+                    const QuoteSensitivities& s = rowSensitivities.back();
                     if (!s.available) {
                         opaque = true;
                         break;
@@ -122,6 +126,10 @@ namespace QuantLib {
                         referenced.insert(curve);
                     referenced.insert(s.incomplete.begin(), s.incomplete.end());
                 }
+                // reuse only when every row was collected
+                const std::vector<QuoteSensitivities>* rowSens =
+                    rowSensitivities.size() == helpers.size()
+                        ? &rowSensitivities : nullptr;
                 for (const auto* target : curves[a].valueDependencies.targets())
                     referenced.insert(target);
                 for (const auto* dependency : referenced)
@@ -141,11 +149,13 @@ namespace QuantLib {
 
                 std::vector<bool> flags;
                 blocks.own[a] =
-                    curveCrossJacobian(curves[a], curves[a], context, &flags);
+                    curveCrossJacobian(curves[a], curves[a], context, &flags,
+                                       rowSens);
                 blocks.analyticQuotes[a] = flags;
                 for (Size b : blocks.dependsOn[a]) {
                     Matrix block =
-                        curveCrossJacobian(curves[a], curves[b], context, &flags);
+                        curveCrossJacobian(curves[a], curves[b], context,
+                                           &flags, rowSens);
                     for (Size r = 0; r < flags.size(); ++r)
                         blocks.analyticQuotes[a][r] =
                             blocks.analyticQuotes[a][r] && flags[r];
@@ -213,8 +223,8 @@ namespace QuantLib {
             zero risk fixes each curve while the others re-solve. Empty risk
             arrays are treated as zero.
         */
-        inline CurveRiskPropagation
-        propagateCurveNodeRisk(const CurveJacobianBlocks& blocks,
+    inline CurveRiskPropagation propagateCurveNodeRisk(
+        const CurveJacobianBlocks& blocks,
                                const std::vector<Array>& directNodeRisk,
                                bool computeZeroRisk) {
             Size n = blocks.size();

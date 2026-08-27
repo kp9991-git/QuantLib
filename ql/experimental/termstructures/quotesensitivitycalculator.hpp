@@ -140,15 +140,15 @@ namespace QuantLib {
                                       const QuotientSensitivitySpec& spec);
 
         //! sensitivities of a fixed-vs-floating fair rate
-        QuoteSensitivities
-        fairRateSensitivities(const Leg& fixedLeg,
+        QuoteSensitivities fairRateSensitivities(
+            const Leg& fixedLeg,
                               const Leg& floatingLeg,
                               Spread helperSpread,
                               const YieldTermStructure& discountCurve);
 
         //! sensitivities of floating-vs-floating fair basis \f$ b=(O-B)/A \f$
-        QuoteSensitivities
-        fairBasisSensitivities(const Leg& baseLeg,
+        QuoteSensitivities fairBasisSensitivities(
+            const Leg& baseLeg,
                                const Leg& otherLeg,
                                const YieldTermStructure& discountCurve,
                                std::optional<bool> includeSettlementDateFlows = std::nullopt);

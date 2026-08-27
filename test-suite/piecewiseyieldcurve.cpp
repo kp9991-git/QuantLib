@@ -1986,6 +1986,27 @@ void testPiecewiseSpreadYieldCurveImpl() {
     BOOST_CHECK(std::all_of(analytic.begin(), analytic.end(),
                            [](bool x) { return x; }));
 
+    // Extrapolated analytical rows must differentiate the spread factor,
+    // leaving the base discount to SpreadTraits::sensitivityScale().
+    auto spreadNode = detail::BootstrapJacobianAccess<Curve>::makeNode(curve);
+    Date sensitivityDate = curve->dates().back() + 1 * Years;
+    std::vector<Real> extrapolatedRow;
+    BOOST_REQUIRE(spreadNode.analyticRow({{sensitivityDate, 1.0}},
+                                         extrapolatedRow));
+    BOOST_REQUIRE_EQUAL(extrapolatedRow.size(), curve->data().size() - 1);
+    for (Size j = 1; j < curve->data().size(); ++j) {
+        Real value = spreadNode.nodeValue(j);
+        Real h = 1.0e-7 * std::max(std::abs(value), 0.01);
+        spreadNode.setNodeValue(j, value + h);
+        DiscountFactor up = curve->discount(sensitivityDate, true);
+        spreadNode.setNodeValue(j, value - h);
+        DiscountFactor down = curve->discount(sensitivityDate, true);
+        spreadNode.setNodeValue(j, value);
+        Real numerical = (up - down) / (2.0 * h);
+        Real tolerance = 2.0e-6 * std::max(1.0, std::abs(numerical));
+        BOOST_CHECK_SMALL(extrapolatedRow[j - 1] - numerical, tolerance);
+    }
+
     // Check that we reprice the swaps.
     const Real tolerance = 1.0e-9;
     euribor3m = ext::make_shared<Euribor3M>(curveHandle);
@@ -3401,8 +3422,14 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobianThroughWrapper) {
                         "back to numerical differentiation");
     }
 
-    // composed sensitivities include the wrapper dependency
-    Matrix S = graph.nodeQuoteJacobian(*projCurve, *oisCurve);
+    // composed sensitivities include the wrapper dependency. Since the
+    // inverse uses the whole group, its block is not wholly analytical when
+    // any equation row was differentiated numerically.
+    std::vector<bool> composedAnalytic;
+    Matrix S = graph.nodeQuoteJacobian(*projCurve, *oisCurve,
+                                       &composedAnalytic);
+    BOOST_CHECK(std::none_of(composedAnalytic.begin(), composedAnalytic.end(),
+                             [](bool flag) { return flag; }));
     Real h = 1.0e-6, tolerance = 1.0e-5;
     for (Size k = 0; k < oisQuotes.size(); ++k) {
         Real q0 = oisQuotes[k]->value();
@@ -3433,8 +3460,8 @@ struct CoDependentPair {
 };
 
 // Joint 3M and 6M curves built from FRAs, basis swaps, and swaps
-ext::shared_ptr<CoDependentPair>
-buildCoDependentPair(const Handle<YieldTermStructure>& discountCurve,
+    ext::shared_ptr<CoDependentPair> buildCoDependentPair(
+        const Handle<YieldTermStructure>& discountCurve,
                      bool analyticJacobian) {
     Date today = Settings::instance().evaluationDate();
     auto p = ext::make_shared<CoDependentPair>();
@@ -3550,6 +3577,30 @@ BOOST_AUTO_TEST_CASE(testCoDependentCurveJacobian) {
             }
         }
     }
+
+    // Recalibrating one member mutates every contributor's nodes. A sibling
+    // Jacobian cached before the recalibration must not survive it.
+    Matrix oldJacobian = curve6m->jacobian();
+    Rate q0 = quotes3m.front()->value();
+    quotes3m.front()->setValue(q0 + 1.0e-3);
+    curve3m->data();
+    Matrix recalibratedJacobian = curve6m->jacobian();
+    curve6m->update();
+    Matrix refreshedJacobian = curve6m->jacobian();
+    bool changed = false;
+    for (Size i = 0; i < recalibratedJacobian.rows(); ++i) {
+        for (Size j = 0; j < recalibratedJacobian.columns(); ++j) {
+            changed = changed ||
+                      std::fabs(recalibratedJacobian[i][j] - oldJacobian[i][j]) >
+                          1.0e-10;
+            BOOST_CHECK_SMALL(recalibratedJacobian[i][j] -
+                                  refreshedJacobian[i][j],
+                              1.0e-7);
+        }
+    }
+    BOOST_CHECK(changed);
+    quotes3m.front()->setValue(q0);
+    curve3m->data();
 }
 
 BOOST_AUTO_TEST_CASE(testCoDependentCurveRiskPropagation) {
@@ -3750,6 +3801,15 @@ BOOST_AUTO_TEST_CASE(testMultiCurveJacobianThroughDependentCurve) {
         projection, ext::shared_ptr<YieldTermStructure>(curve));
     multiCurve->addNonBootstrappedCurve(
         discount, ext::shared_ptr<YieldTermStructure>(wrapper));
+
+    // The single-curve view cannot prove that the discount wrapper is
+    // independent of the bootstrapped curve, so it must fall back rather
+    // than silently omit that channel.
+    std::vector<bool> ownAnalytic;
+    curve->jacobian(&ownAnalytic);
+    BOOST_REQUIRE_EQUAL(ownAnalytic.size(), quotes.size());
+    BOOST_CHECK(std::none_of(ownAnalytic.begin(), ownAnalytic.end(),
+                             [](bool flag) { return flag; }));
 
     std::vector<bool> analytic;
     Matrix S = curve->inverseJacobian(&analytic);

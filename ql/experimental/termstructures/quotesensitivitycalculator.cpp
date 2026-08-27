@@ -349,8 +349,8 @@ namespace QuantLib {
             return true;
         }
 
-        QuoteSensitivities
-        fairRateSensitivities(const Leg& fixedLeg,
+        QuoteSensitivities fairRateSensitivities(
+            const Leg& fixedLeg,
                               const Leg& floatingLeg,
                               Spread helperSpread,
                               const YieldTermStructure& discountCurve) {
@@ -370,8 +370,8 @@ namespace QuantLib {
             return result;
         }
 
-        QuoteSensitivities
-        fairBasisSensitivities(const Leg& baseLeg,
+        QuoteSensitivities fairBasisSensitivities(
+            const Leg& baseLeg,
                                const Leg& otherLeg,
                                const YieldTermStructure& discountCurve,
                                std::optional<bool> includeSettlementDateFlows) {

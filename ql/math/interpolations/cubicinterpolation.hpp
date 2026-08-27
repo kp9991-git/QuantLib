@@ -822,8 +822,7 @@ namespace QuantLib {
                 }
                 return weights;
             }
-            std::vector<std::pair<Size, Real>>
-            derivativeNodeWeights(Real x) const override {
+            std::vector<std::pair<Size, Real>> derivativeNodeWeights(Real x) const override {
                 // Only these unfiltered schemes are affine in the nodes.
                 if (monotonic_ ||
                     (da_ != CubicInterpolation::Spline &&
