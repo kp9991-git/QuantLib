@@ -373,11 +373,14 @@ namespace QuantLib {
         QuoteSensitivities
         fairBasisSensitivities(const Leg& baseLeg,
                                const Leg& otherLeg,
-                               const YieldTermStructure& discountCurve) {
+                               const YieldTermStructure& discountCurve,
+                               std::optional<bool> includeSettlementDateFlows) {
             QuoteSensitivities result;
             LegSensitivityAnalysis base, other;
-            if (!analyzeLeg(baseLeg, discountCurve, result, base) ||
-                !analyzeLeg(otherLeg, discountCurve, result, other))
+            if (!analyzeLeg(baseLeg, discountCurve, result, base,
+                            includeSettlementDateFlows) ||
+                !analyzeLeg(otherLeg, discountCurve, result, other,
+                            includeSettlementDateFlows))
                 return {};
 
             // fair basis = (other NPV - base NPV) / base annuity

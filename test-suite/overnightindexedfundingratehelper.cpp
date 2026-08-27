@@ -48,6 +48,19 @@ namespace {
         return ext::make_shared<FlatForward>(referenceDate, rate, Actual365Fixed(), Continuous);
     }
 
+    Real parallelZeroSensitivity(const QuoteSensitivities& sensitivities,
+                                 const YieldTermStructure& curve) {
+        const auto i = sensitivities.sensitivities.find(&curve);
+        QL_REQUIRE(i != sensitivities.sensitivities.end(),
+                   "curve missing from quote sensitivities");
+        Real result = 0.0;
+        for (const auto& [date, dQdP] : i->second) {
+            Time t = curve.timeFromReference(date);
+            result -= dQdP * t * curve.discount(date);
+        }
+        return result;
+    }
+
 }
 
 BOOST_AUTO_TEST_CASE(testUsdCofStyleBootstrap) {
@@ -150,7 +163,9 @@ BOOST_AUTO_TEST_CASE(testSameDayOvernightPillar) {
     Settings::instance().includeReferenceDateEvents() = false;
 
     Calendar calendar = Australia();
-    Handle<YieldTermStructure> projection(flatCurve(today, 0.04));
+    RelinkableHandle<YieldTermStructure> projection;
+    auto baseProjection = flatCurve(today, 0.04);
+    projection.linkTo(baseProjection);
     auto aonia = ext::make_shared<Aonia>(projection);
 
     Spread margin = 0.0004;
@@ -164,6 +179,86 @@ BOOST_AUTO_TEST_CASE(testSameDayOvernightPillar) {
     BOOST_CHECK_EQUAL(helper->pillarDate(), Date(16, July, 2026));
     curve->discount(helper->pillarDate());
     BOOST_CHECK_SMALL(helper->impliedQuote() - margin, 1.0e-11);
+
+    auto baseDiscount = flatCurve(today, 0.047);
+    helper->setTermStructure(baseDiscount.get());
+    QuoteSensitivities sensitivities = helper->impliedQuoteSensitivitiesByCurve();
+    BOOST_REQUIRE(sensitivities.available);
+    BOOST_CHECK(sensitivities.incomplete.empty());
+
+    Real analyticDiscount = parallelZeroSensitivity(sensitivities, *baseDiscount);
+    Real analyticProjection = parallelZeroSensitivity(sensitivities, *baseProjection);
+
+    const Real bump = 1.0e-7;
+    auto discountUp = flatCurve(today, 0.047 + bump);
+    auto discountDown = flatCurve(today, 0.047 - bump);
+    helper->setTermStructure(discountUp.get());
+    Real quoteUp = helper->impliedQuote();
+    helper->setTermStructure(discountDown.get());
+    Real quoteDown = helper->impliedQuote();
+    Real numericalDiscount = (quoteUp - quoteDown) / (2.0 * bump);
+    helper->setTermStructure(baseDiscount.get());
+
+    auto projectionUp = flatCurve(today, 0.04 + bump);
+    auto projectionDown = flatCurve(today, 0.04 - bump);
+    projection.linkTo(projectionUp);
+    quoteUp = helper->impliedQuote();
+    projection.linkTo(projectionDown);
+    quoteDown = helper->impliedQuote();
+    Real numericalProjection = (quoteUp - quoteDown) / (2.0 * bump);
+    projection.linkTo(baseProjection);
+
+    BOOST_CHECK_SMALL(analyticDiscount - numericalDiscount, 2.0e-7);
+    BOOST_CHECK_SMALL(analyticProjection - numericalProjection, 2.0e-7);
+}
+
+BOOST_AUTO_TEST_CASE(testAnalyticQuoteSensitivities) {
+    SavedSettings backup;
+    Date today(30, September, 2025);
+    Settings::instance().evaluationDate() = today;
+
+    Calendar calendar = UnitedStates(UnitedStates::Settlement);
+    RelinkableHandle<YieldTermStructure> projection;
+    auto baseProjection = flatCurve(today, 0.04);
+    projection.linkTo(baseProjection);
+    auto sofr = ext::make_shared<Sofr>(projection);
+
+    auto helper = ext::make_shared<OvernightIndexedFundingRateHelper>(
+        0.005, 5 * Years, 2, calendar, ModifiedFollowing, false, sofr, 3 * Months, Actual360(), 2,
+        true);
+    auto baseDiscount = flatCurve(today, 0.047);
+    helper->setTermStructure(baseDiscount.get());
+
+    QuoteSensitivities sensitivities = helper->impliedQuoteSensitivitiesByCurve();
+    BOOST_REQUIRE(sensitivities.available);
+    BOOST_CHECK(sensitivities.incomplete.empty());
+    BOOST_REQUIRE(sensitivities.sensitivities.count(baseDiscount.get()) == 1);
+    BOOST_REQUIRE(sensitivities.sensitivities.count(baseProjection.get()) == 1);
+
+    Real analyticDiscount = parallelZeroSensitivity(sensitivities, *baseDiscount);
+    Real analyticProjection = parallelZeroSensitivity(sensitivities, *baseProjection);
+
+    const Real bump = 1.0e-7;
+    auto discountUp = flatCurve(today, 0.047 + bump);
+    auto discountDown = flatCurve(today, 0.047 - bump);
+    helper->setTermStructure(discountUp.get());
+    Real quoteUp = helper->impliedQuote();
+    helper->setTermStructure(discountDown.get());
+    Real quoteDown = helper->impliedQuote();
+    Real numericalDiscount = (quoteUp - quoteDown) / (2.0 * bump);
+    helper->setTermStructure(baseDiscount.get());
+
+    auto projectionUp = flatCurve(today, 0.04 + bump);
+    auto projectionDown = flatCurve(today, 0.04 - bump);
+    projection.linkTo(projectionUp);
+    quoteUp = helper->impliedQuote();
+    projection.linkTo(projectionDown);
+    quoteDown = helper->impliedQuote();
+    Real numericalProjection = (quoteUp - quoteDown) / (2.0 * bump);
+    projection.linkTo(baseProjection);
+
+    BOOST_CHECK_SMALL(analyticDiscount - numericalDiscount, 2.0e-7);
+    BOOST_CHECK_SMALL(analyticProjection - numericalProjection, 2.0e-7);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
