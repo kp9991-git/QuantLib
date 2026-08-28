@@ -4491,6 +4491,9 @@
     <ClInclude Include="ql\experimental\termstructures\jacobian\curvecrossjacobian.hpp">
       <Filter>experimental\termstructures\jacobian</Filter>
     </ClInclude>
+    <ClInclude Include="ql\experimental\termstructures\jacobian\curvejacobiangraph.hpp">
+      <Filter>experimental\termstructures\jacobian</Filter>
+    </ClInclude>
     <ClInclude Include="ql\experimental\termstructures\jacobian\curveriskpropagation.hpp">
       <Filter>experimental\termstructures\jacobian</Filter>
     </ClInclude>

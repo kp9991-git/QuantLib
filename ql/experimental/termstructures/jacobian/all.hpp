@@ -4,4 +4,5 @@
 #include <ql/experimental/termstructures/jacobian/bootstrapequationjacobian.hpp>
 #include <ql/experimental/termstructures/jacobian/curvechainrulecalculator.hpp>
 #include <ql/experimental/termstructures/jacobian/curvecrossjacobian.hpp>
+#include <ql/experimental/termstructures/jacobian/curvejacobiangraph.hpp>
 #include <ql/experimental/termstructures/jacobian/curveriskpropagation.hpp>

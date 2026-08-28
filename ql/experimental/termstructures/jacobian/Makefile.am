@@ -6,6 +6,7 @@ this_include_HEADERS = \
     bootstrapequationjacobian.hpp \
     curvechainrulecalculator.hpp \
     curvecrossjacobian.hpp \
+    curvejacobiangraph.hpp \
     curveriskpropagation.hpp
 
 all.hpp: Makefile.am
