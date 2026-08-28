@@ -149,14 +149,14 @@ namespace QuantLib {
             Rows follow alive helpers and columns follow data()[1..]. For
             multi-curve dependencies, other curve nodes are fixed.
         */
-        Matrix jacobian(std::vector<bool>* analyticRows = nullptr) const;
+        Matrix jacobian(std::vector<bool>* analyticEquations = nullptr) const;
 
         /*! Jacobian of free curve nodes with respect to helper quotes.
             For a stand-alone curve, this is inverse(jacobian()). For a
             MultiCurve group, columns cover all members' quotes in
             registration order. Group feedback is included.
         */
-        Matrix inverseJacobian(std::vector<bool>* analyticRows = nullptr) const;
+        Matrix inverseJacobian(std::vector<bool>* analyticEquations = nullptr) const;
         //@}
         //! \name Observer interface
         //@{
@@ -238,18 +238,19 @@ namespace QuantLib {
 
     template <class Traits, class Interpolator, template <class> class Bootstrap>
     Matrix PiecewiseYieldCurve<Traits, Interpolator, Bootstrap>::jacobian(
-                                       std::vector<bool>* analyticRows) const {
+                                       std::vector<bool>* analyticEquations) const {
         calculate();
-        return jacobianCache_.get(analyticRows, [this](std::vector<bool>* rows) {
+        return jacobianCache_.get(
+            analyticEquations, [this](std::vector<bool>* equations) {
             return detail::bootstrapEquationJacobian<Traits>(
                 this, instruments_, this->times_, this->data_,
-                this->interpolation_, !this->jumpDates().empty(), rows);
+                this->interpolation_, !this->jumpDates().empty(), equations);
         });
     }
 
     template <class Traits, class Interpolator, template <class> class Bootstrap>
     Matrix PiecewiseYieldCurve<Traits, Interpolator, Bootstrap>::inverseJacobian(
-                                       std::vector<bool>* analyticRows) const {
+                                       std::vector<bool>* analyticEquations) const {
         calculate();
         if constexpr (detail::hasJacobianGroup<bootstrap_type>) {
             auto group = bootstrap_.jacobianGroup();
@@ -262,16 +263,17 @@ namespace QuantLib {
                            "invalid target curve in Jacobian group");
                 detail::CurveJacobianBlocks blocks =
                     detail::curveJacobianBlocks(group.members, context);
-                if (analyticRows != nullptr) {
-                    analyticRows->clear();
+                if (analyticEquations != nullptr) {
+                    analyticEquations->clear();
                     for (const auto& flags : blocks.analyticQuotes)
-                        analyticRows->insert(analyticRows->end(),
-                                             flags.begin(), flags.end());
+                        analyticEquations->insert(analyticEquations->end(),
+                                                  flags.begin(), flags.end());
                 }
                 return detail::inverseCurveJacobianRows(blocks, group.target);
             }
         }
-        return detail::inverseBootstrapEquationJacobian(jacobian(analyticRows));
+        return detail::inverseBootstrapEquationJacobian(
+            jacobian(analyticEquations));
     }
 
     template <class C, class I, template <class> class B>

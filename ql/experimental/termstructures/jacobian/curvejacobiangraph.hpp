@@ -42,6 +42,47 @@ namespace QuantLib {
     */
     class CurveJacobianGraph {
       public:
+        explicit CurveJacobianGraph(bool errorOnIncomplete = false)
+        : errorOnIncomplete_(errorOnIncomplete) {}
+
+        /*! Whether every curve dependency reported by registered curves and
+            their helpers is represented in the graph. Helpers without
+            dependency metadata do not make the graph incomplete.
+        */
+        bool isComplete() const {
+            std::set<detail::CurveId> registered = derivedIds_;
+            for (const auto& node : nodes_)
+                registered.insert(node.id);
+
+            auto isRegistered = [&](detail::CurveId dependency) {
+                return registered.count(dependency) != 0;
+            };
+            auto dependenciesAreRegistered = [&](const auto& dependencies) {
+                return std::all_of(
+                    dependencies.begin(), dependencies.end(), isRegistered);
+            };
+
+            for (const auto& node : nodes_) {
+                if (!dependenciesAreRegistered(
+                        node.valueDependencies.targets()))
+                    return false;
+                for (const auto& helper : node.aliveHelpers()) {
+                    QuoteSensitivities sensitivities =
+                        helper->impliedQuoteSensitivitiesByCurve();
+                    for (const auto& sensitivity : sensitivities.sensitivities)
+                        if (!isRegistered(sensitivity.first))
+                            return false;
+                    if (!dependenciesAreRegistered(sensitivities.incomplete))
+                        return false;
+                }
+            }
+            for (detail::CurveId derived : derivedIds_)
+                if (!dependenciesAreRegistered(
+                        derivedDependencies_.targets(derived)))
+                    return false;
+            return true;
+        }
+
         /*! Register a calibrated curve or a supported derived curve.
             Calibrated curves contribute blocks. Derived curves only record
             dependencies.
@@ -75,33 +116,29 @@ namespace QuantLib {
         */
         Matrix crossJacobian(const YieldTermStructure& of,
                              const YieldTermStructure& withRespectTo,
-            std::vector<bool>* analyticRows = nullptr) const {
+            std::vector<bool>* analyticEquations = nullptr) const {
+            requireComplete();
             detail::CurveCrossJacobianContext context = jacobianContext();
             return detail::curveCrossJacobian(node(of), node(withRespectTo),
-                                              context, analyticRows);
+                                              context, analyticEquations);
         }
 
         /*! Block of the inverse Jacobian for the registered curve system.
             Rows are the first curve's nodes and columns are the second
             curve's helper quotes. All registered dependencies are included.
-            One numerical row anywhere contaminates every entry, so the flags
-            are all true only when the whole group is analytical.
+            The optional flags describe the second curve's helper equations.
         */
         Matrix inverseJacobian(const YieldTermStructure& of,
                                const YieldTermStructure& withRespectTo,
-                               std::vector<bool>* analyticRows = nullptr) const {
+                               std::vector<bool>* analyticEquations = nullptr) const {
+            requireComplete();
             Size a = index(of), b = index(withRespectTo);
             detail::CurveCrossJacobianContext context = jacobianContext(false);
             detail::CurveJacobianBlocks blocks =
                 detail::curveJacobianBlocks(nodes_, context);
             Matrix block = detail::inverseCurveJacobianBlock(blocks, a, b);
-            if (analyticRows != nullptr) {
-                bool clean = true;
-                for (const auto& flags : blocks.analyticQuotes)
-                    clean = clean && std::all_of(
-                        flags.begin(), flags.end(), [](bool f) { return f; });
-                analyticRows->assign(blocks.numQuotes(b), clean);
-            }
+            if (analyticEquations != nullptr)
+                *analyticEquations = blocks.analyticQuotes[b];
             return block;
         }
 
@@ -111,7 +148,8 @@ namespace QuantLib {
         Matrix inverseJacobianDense(
                 const YieldTermStructure& of,
                 const YieldTermStructure& withRespectTo,
-                std::vector<bool>* analyticRows = nullptr) const {
+                std::vector<bool>* analyticEquations = nullptr) const {
+            requireComplete();
             Size a = index(of), b = index(withRespectTo);
             std::vector<Size> rowOffsets, colOffsets;
             std::vector<bool> allAnalytic;
@@ -127,29 +165,31 @@ namespace QuantLib {
                     inverse.row_begin(rowOffsets[a] + i) + colOffsets[b + 1],
                     block.row_begin(i));
 
-            if (analyticRows != nullptr) {
-                bool clean = std::all_of(allAnalytic.begin(),
-                                         allAnalytic.end(),
-                                         [](bool flag) { return flag; });
-                analyticRows->assign(block.columns(), clean);
-            }
+            if (analyticEquations != nullptr)
+                *analyticEquations = std::vector<bool>(
+                    allAnalytic.begin() + colOffsets[b],
+                    allAnalytic.begin() + colOffsets[b + 1]);
             return block;
         }
 
         /*! Jacobian of continuously compounded zero rates at a curve's node
             dates with respect to its free stored nodes.
         */
-        Matrix zeroNodeJacobian(const YieldTermStructure& curve,
-                                std::vector<bool>* analyticRows = nullptr) const {
-            return detail::zeroNodeJacobian(node(curve), analyticRows);
+        Matrix zeroNodeJacobian(
+                const YieldTermStructure& curve,
+                std::vector<bool>* analyticDerivatives = nullptr) const {
+            requireComplete();
+            return detail::zeroNodeJacobian(node(curve), analyticDerivatives);
         }
 
         /*! Jacobian of a curve's free stored nodes with respect to
             continuously compounded zero rates at its node dates.
         */
-        Matrix nodeZeroJacobian(const YieldTermStructure& curve,
-                                std::vector<bool>* analyticRows = nullptr) const {
-            return detail::nodeZeroJacobian(node(curve), analyticRows);
+        Matrix nodeZeroJacobian(
+                const YieldTermStructure& curve,
+                std::vector<bool>* analyticDerivatives = nullptr) const {
+            requireComplete();
+            return detail::nodeZeroJacobian(node(curve), analyticDerivatives);
         }
 
         /*! Convert node risk to par risk using the dense inverse.
@@ -157,14 +197,15 @@ namespace QuantLib {
         */
         std::map<const YieldTermStructure*, Array> parRiskDense(
             const std::map<const YieldTermStructure*, Array>& nodeRisk,
-                     std::vector<bool>* analyticRows = nullptr) const {
+                     std::vector<bool>* analyticEquations = nullptr) const {
+            requireComplete();
             std::vector<Size> rowOffsets, colOffsets;
             std::vector<bool> allAnalytic;
             detail::CurveCrossJacobianContext context = jacobianContext(false);
             Matrix S = detail::curveGroupInverseJacobian(
                 nodes_, &rowOffsets, &colOffsets, &allAnalytic, context);
-            if (analyticRows != nullptr)
-                *analyticRows = std::move(allAnalytic);
+            if (analyticEquations != nullptr)
+                *analyticEquations = std::move(allAnalytic);
 
             // s is the stacked node risk and r = transpose(S) * s
             Array s(S.rows(), 0.0);
@@ -197,7 +238,8 @@ namespace QuantLib {
                 const std::map<const YieldTermStructure*, Array>& nodeRisk,
                 std::map<const YieldTermStructure*, Array>* zeroRisk,
                 std::map<const YieldTermStructure*, Array>* parRisk,
-                std::vector<bool>* analyticRows = nullptr) const {
+                std::vector<bool>* analyticEquations = nullptr) const {
+            requireComplete();
             detail::CurveCrossJacobianContext context = jacobianContext(false);
             detail::CurveJacobianBlocks blocks =
                 detail::curveJacobianBlocks(nodes_, context);
@@ -223,13 +265,13 @@ namespace QuantLib {
                     (*parRisk)[nodes_[b].curve.get()] = propagated.quoteRisk[b];
             }
 
-            if (analyticRows != nullptr) {
+            if (analyticEquations != nullptr) {
                 std::vector<bool> flat;
                 flat.reserve(blocks.quoteOffset.back());
                 for (const auto& curveFlags : blocks.analyticQuotes)
                     flat.insert(flat.end(),
                                 curveFlags.begin(), curveFlags.end());
-                *analyticRows = std::move(flat);
+                *analyticEquations = std::move(flat);
             }
         }
 
@@ -239,9 +281,9 @@ namespace QuantLib {
         */
         std::map<const YieldTermStructure*, Array> zeroRisk(
             const std::map<const YieldTermStructure*, Array>& nodeRisk,
-                 std::vector<bool>* analyticRows = nullptr) const {
+                 std::vector<bool>* analyticEquations = nullptr) const {
             std::map<const YieldTermStructure*, Array> result;
-            propagateNodeRisk(nodeRisk, &result, nullptr, analyticRows);
+            propagateNodeRisk(nodeRisk, &result, nullptr, analyticEquations);
             return result;
         }
 
@@ -250,13 +292,18 @@ namespace QuantLib {
         */
         std::map<const YieldTermStructure*, Array> parRisk(
             const std::map<const YieldTermStructure*, Array>& nodeRisk,
-                std::vector<bool>* analyticRows = nullptr) const {
+                std::vector<bool>* analyticEquations = nullptr) const {
             std::map<const YieldTermStructure*, Array> result;
-            propagateNodeRisk(nodeRisk, nullptr, &result, analyticRows);
+            propagateNodeRisk(nodeRisk, nullptr, &result, analyticEquations);
             return result;
         }
 
       private:
+        void requireComplete() const {
+            QL_REQUIRE(!errorOnIncomplete_ || isComplete(),
+                       "incomplete curve Jacobian graph");
+        }
+
         void addDerivedCurve(
                 const ext::shared_ptr<YieldTermStructure>& curve,
                 const ext::shared_ptr<YieldTermStructure>& dependency) {
@@ -286,6 +333,7 @@ namespace QuantLib {
 
         detail::CurveCrossJacobianContext jacobianContext(bool includeAccountedCurves = true) const {
             detail::CurveCrossJacobianContext result;
+            result.assumeUnlistedCurvesIndependent();
             result.addDependencies(derivedDependencies_);
             result.addNumericallyPropagatedCurves(derivedIds_);
             for (const auto& node : nodes_) {
@@ -301,6 +349,7 @@ namespace QuantLib {
         std::vector<ext::shared_ptr<const YieldTermStructure>> derivedCurves_;
         std::set<const TermStructure*> derivedIds_;
         detail::CurveChainRuleCalculator derivedDependencies_;
+        bool errorOnIncomplete_;
     };
 
 }

@@ -111,8 +111,9 @@ void checkZeroNodeTransformation(bool expectedAnalytic) {
         0, TARGET(), helpers, Actual360(), Interpolator());
     curve->enableExtrapolation();
 
-    CurveJacobianGraph graph;
+    CurveJacobianGraph graph(true);
     graph.add(curve);
+    BOOST_CHECK(graph.isComplete());
 
     std::vector<bool> analytic;
     Matrix zeroNode = graph.zeroNodeJacobian(*curve, &analytic);
@@ -2851,6 +2852,33 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobian) {
     CurveJacobianGraph graph;
     graph.add(oisCurve);
     graph.add(projCurve);
+    BOOST_CHECK(graph.isComplete());
+
+    // Missing curves are fixed analytically unless completeness is required.
+    CurveJacobianGraph partialGraph;
+    partialGraph.add(projCurve);
+    BOOST_CHECK(!partialGraph.isComplete());
+    std::vector<bool> partialAnalytic;
+    Matrix partialInverse = partialGraph.inverseJacobian(
+        *projCurve, *projCurve, &partialAnalytic);
+    BOOST_CHECK(std::all_of(partialAnalytic.begin(), partialAnalytic.end(),
+                            [](bool flag) { return flag; }));
+
+    CurveJacobianGraph strictGraph(true);
+    strictGraph.add(projCurve);
+    BOOST_CHECK(!strictGraph.isComplete());
+    BOOST_CHECK_THROW(strictGraph.inverseJacobian(*projCurve, *projCurve),
+                      Error);
+    strictGraph.add(oisCurve);
+    BOOST_CHECK(strictGraph.isComplete());
+    Matrix strictInverse =
+        strictGraph.inverseJacobian(*projCurve, *projCurve);
+    BOOST_REQUIRE_EQUAL(partialInverse.rows(), strictInverse.rows());
+    BOOST_REQUIRE_EQUAL(partialInverse.columns(), strictInverse.columns());
+    for (Size i = 0; i < partialInverse.rows(); ++i)
+        for (Size j = 0; j < partialInverse.columns(); ++j)
+            BOOST_CHECK_SMALL(partialInverse[i][j] - strictInverse[i][j],
+                              1.0e-10);
 
     // projection-helper sensitivity to discount nodes
     std::vector<bool> analytic;

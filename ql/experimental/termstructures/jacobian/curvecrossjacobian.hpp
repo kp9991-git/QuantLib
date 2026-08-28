@@ -145,8 +145,8 @@ namespace QuantLib {
                             alive.push_back(helper);
                     return alive;
                 };
-                n.ownJacobian = [curve](std::vector<bool>* analyticRows) {
-                    return curve->jacobian(analyticRows);
+                n.ownJacobian = [curve](std::vector<bool>* analyticEquations) {
+                    return curve->jacobian(analyticEquations);
                 };
                 n.analyticRow = [curve](const std::vector<std::pair<Date, Real>>& dateSens,
                                         std::vector<Real>& row) {
@@ -210,8 +210,9 @@ namespace QuantLib {
         /*! Jacobian of continuous zero rates at node dates with respect to
             free stored nodes. Unsupported rows use numerical differences.
         */
-        inline Matrix zeroNodeJacobian(const CurveJacobianNode& n,
-                                       std::vector<bool>* analyticRows = nullptr) {
+        inline Matrix zeroNodeJacobian(
+                const CurveJacobianNode& n,
+                std::vector<bool>* analyticDerivatives = nullptr) {
             n.ensure();
             std::vector<Date> dates = n.nodeDates();
             Size rows = dates.size(), cols = n.numNodes();
@@ -251,17 +252,18 @@ namespace QuantLib {
                     numericalRows.push_back(i);
             fillNumericalNodeRows(n, numericalRows, J, zeroAt);
 
-            if (analyticRows != nullptr)
-                *analyticRows = std::move(analytic);
+            if (analyticDerivatives != nullptr)
+                *analyticDerivatives = std::move(analytic);
             return J;
         }
 
         /*! Jacobian of free stored nodes with respect to continuous zero
             rates at node dates.
         */
-        inline Matrix nodeZeroJacobian(const CurveJacobianNode& n,
-                                       std::vector<bool>* analyticRows = nullptr) {
-            Matrix J = zeroNodeJacobian(n, analyticRows);
+        inline Matrix nodeZeroJacobian(
+                const CurveJacobianNode& n,
+                std::vector<bool>* analyticDerivatives = nullptr) {
+            Matrix J = zeroNodeJacobian(n, analyticDerivatives);
             QL_REQUIRE(J.rows() == J.columns(),
                        "cannot invert a non-square zero/node Jacobian");
             return inverse(J);
@@ -290,7 +292,7 @@ namespace QuantLib {
         inline Matrix curveCrossJacobian(const CurveJacobianNode& a,
                                          const CurveJacobianNode& b,
                                          const CurveCrossJacobianContext& context,
-                                         std::vector<bool>* analyticRows = nullptr,
+                                         std::vector<bool>* analyticEquations = nullptr,
                                          const std::vector<QuoteSensitivities>*
                                              rowSensitivities = nullptr) {
             a.ensure();
@@ -365,8 +367,8 @@ namespace QuantLib {
                 b, numericalRows, J,
                 [&](Size i) { return helpers[i]->impliedQuote(); });
 
-            if (analyticRows != nullptr)
-                *analyticRows = analytic;
+            if (analyticEquations != nullptr)
+                *analyticEquations = analytic;
             return J;
         }
 
@@ -382,7 +384,7 @@ namespace QuantLib {
                 const std::vector<CurveJacobianNode>& curves,
                 std::vector<Size>* rowOffsets = nullptr,
                 std::vector<Size>* colOffsets = nullptr,
-                std::vector<bool>* analyticRows = nullptr,
+                std::vector<bool>* analyticEquations = nullptr,
                 const CurveCrossJacobianContext& baseContext = {}) {
             Size n = curves.size();
             std::vector<Size> nodeOffset(n + 1, 0), quoteOffset(n + 1, 0);
@@ -421,8 +423,8 @@ namespace QuantLib {
                 *rowOffsets = nodeOffset;
             if (colOffsets != nullptr)
                 *colOffsets = quoteOffset;
-            if (analyticRows != nullptr)
-                *analyticRows = analytic;
+            if (analyticEquations != nullptr)
+                *analyticEquations = analytic;
             return inverse(J);
         }
 

@@ -188,17 +188,20 @@ namespace QuantLib {
         /*! Jacobian of helper quotes with respect to curve nodes.
             Credit helpers currently use central finite differences.
         */
-        Matrix jacobian(std::vector<bool>* analyticRows = nullptr) const {
+        Matrix jacobian(std::vector<bool>* analyticEquations = nullptr) const {
             calculate();
-            return jacobianCache_.get(analyticRows, [this](std::vector<bool>* rows) {
+            return jacobianCache_.get(
+                analyticEquations, [this](std::vector<bool>* equations) {
                 return detail::bootstrapEquationJacobian<Traits>(
                     this, instruments_, this->times_, this->data_,
-                    this->interpolation_, !this->jumpDates().empty(), rows);
+                    this->interpolation_, !this->jumpDates().empty(), equations);
             });
         }
         //! Jacobian of curve nodes with respect to helper quotes
-        Matrix inverseJacobian(std::vector<bool>* analyticRows = nullptr) const {
-            return detail::inverseBootstrapEquationJacobian(jacobian(analyticRows));
+        Matrix inverseJacobian(
+                std::vector<bool>* analyticEquations = nullptr) const {
+            return detail::inverseBootstrapEquationJacobian(
+                jacobian(analyticEquations));
         }
         //@}
         //! \name Observer interface

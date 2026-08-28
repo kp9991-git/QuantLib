@@ -106,7 +106,7 @@ namespace QuantLib {
                  std::vector<Real>& data,
                  Interpolation& interpolation,
                  bool curveHasJumps,
-                 std::vector<bool>* analyticRows,
+                 std::vector<bool>* analyticEquations,
                  bool numericalFallback = true) {
 
             // alive helpers in curve order
@@ -181,8 +181,8 @@ namespace QuantLib {
                 }
             }
 
-            if (analyticRows != nullptr)
-                *analyticRows = analytic;
+            if (analyticEquations != nullptr)
+                *analyticEquations = analytic;
             return J;
         }
 
@@ -195,20 +195,20 @@ namespace QuantLib {
           public:
             void invalidate() const { valid_ = false; }
             template <class Compute>
-            Matrix get(std::vector<bool>* analyticRows,
+            Matrix get(std::vector<bool>* analyticEquations,
                        const Compute& compute) const {
                 if (!valid_) {
-                    matrix_ = compute(&analyticRows_);
+                    matrix_ = compute(&analyticEquations_);
                     valid_ = true;
                 }
-                if (analyticRows != nullptr)
-                    *analyticRows = analyticRows_;
+                if (analyticEquations != nullptr)
+                    *analyticEquations = analyticEquations_;
                 return matrix_;
             }
           private:
             mutable bool valid_ = false;
             mutable Matrix matrix_;
-            mutable std::vector<bool> analyticRows_;
+            mutable std::vector<bool> analyticEquations_;
         };
 
         //! invert a square bootstrap-equation Jacobian
