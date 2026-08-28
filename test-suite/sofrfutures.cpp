@@ -250,6 +250,31 @@ BOOST_AUTO_TEST_CASE(testPillarDates) {
     BOOST_CHECK_EQUAL(sh.pillarDate(), sofrCustom);
 }
 
+BOOST_AUTO_TEST_CASE(testAnalyticQuoteSensitivities) {
+    BOOST_TEST_MESSAGE("Testing analytical SOFR-futures quote sensitivities...");
+
+    Date today(15, March, 2024);
+    Settings::instance().evaluationDate() = today;
+
+    auto curve = ext::make_shared<FlatForward>(today, 0.03, Actual360());
+    Handle<Quote> price(ext::make_shared<SimpleQuote>(99.0));
+    Date valueDate(20, March, 2024);
+    Date maturityDate(20, June, 2024);
+
+    for (RateAveraging::Type averagingMethod :
+         {RateAveraging::Compound, RateAveraging::Simple}) {
+        auto helper = ext::make_shared<OvernightIndexFutureRateHelper>(
+            price, valueDate, maturityDate, ext::make_shared<Sofr>(),
+            Handle<Quote>(), averagingMethod);
+        helper->setTermStructure(curve.get());
+
+        QuoteSensitivities sensitivities =
+            helper->impliedQuoteSensitivitiesByCurve();
+        BOOST_REQUIRE(sensitivities.available);
+        BOOST_CHECK(sensitivities.incomplete.empty());
+    }
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 BOOST_AUTO_TEST_SUITE_END()
