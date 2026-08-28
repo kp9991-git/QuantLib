@@ -2712,6 +2712,60 @@ BOOST_AUTO_TEST_CASE(testJacobianWithOISHelpers) {
     checkJacobian(curve, quotes, true);
 }
 
+BOOST_AUTO_TEST_CASE(testJacobianWithSharedHelpers) {
+
+    BOOST_TEST_MESSAGE("Testing that Jacobians of curves sharing rate "
+                       "helpers fail loudly...");
+
+    CommonVars vars;
+
+    std::vector<ext::shared_ptr<SimpleQuote>> quotes;
+    std::vector<ext::shared_ptr<RateHelper>> helpers;
+    auto estr = ext::make_shared<Estr>();
+    for (auto& [months, r] : std::vector<std::pair<Integer, Rate>>{
+             {12, 0.0210}, {24, 0.0225}, {60, 0.0250}, {120, 0.0260}}) {
+        auto q = ext::make_shared<SimpleQuote>(r);
+        quotes.push_back(q);
+        helpers.push_back(ext::make_shared<OISRateHelper>(
+            2, months * Months, Handle<Quote>(q), estr));
+    }
+
+    // two distinct curves sharing the same helper objects: each bootstrap
+    // re-seats the helpers, so interrogating the other curve is unsafe
+    using Curve = PiecewiseYieldCurve<Discount, LogLinear>;
+    auto curveA = ext::make_shared<Curve>(0, TARGET(), helpers, Actual360());
+    auto curveB = ext::make_shared<Curve>(0, TARGET(), helpers, Actual360());
+
+    curveA->discount(1.0);   // seats the helpers to A
+    curveB->discount(1.0);   // re-seats them to B; A stays calculated
+
+    // a fresh Jacobian on the mis-seated curve must throw
+    BOOST_CHECK_THROW(curveA->jacobian(), Error);
+
+    // the cross-curve path must throw as well
+    CurveJacobianGraph graph;
+    graph.add(curveB);
+    graph.add(curveA);
+    std::map<const YieldTermStructure*, Array> nodeRisk;
+    nodeRisk[curveB.get()] = Array(curveB->data().size() - 1, 1.0);
+    BOOST_CHECK_THROW(graph.parRisk(nodeRisk), Error);
+
+    // once the curve recalculates it is seated again and works
+    quotes[0]->setValue(0.0211);
+    curveA->discount(1.0);
+    Matrix J = curveA->jacobian();
+    BOOST_CHECK_EQUAL(J.rows(), quotes.size());
+
+    // a cached Jacobian stays valid after the other curve re-seats:
+    // it was computed correctly and no input has changed since
+    curveB->jacobian();
+    Matrix cached = curveA->jacobian();
+    BOOST_REQUIRE_EQUAL(cached.rows(), J.rows());
+    for (Size i = 0; i < J.rows(); ++i)
+        for (Size j = 0; j < J.columns(); ++j)
+            BOOST_CHECK_EQUAL(cached[i][j], J[i][j]);
+}
+
 BOOST_AUTO_TEST_CASE(testGlobalBootstrapWithJacobianOptimizer) {
 
     BOOST_TEST_MESSAGE("Testing global bootstrap using the analytical "

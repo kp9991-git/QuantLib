@@ -149,8 +149,15 @@ namespace QuantLib {
                     Date firstDate = Traits::initialDate(curve_.get());
                     std::vector<ext::shared_ptr<BootstrapHelper<YieldTermStructure>>> alive;
                     for (const auto& helper : curve_->instruments_)
-                        if (helper->pillarDate() > firstDate)
+                        if (helper->pillarDate() > firstDate) {
+                            QL_REQUIRE(helper->termStructure() == curve_.get(),
+                                       "the helper with pillar date " <<
+                                       helper->pillarDate() << " is seated to "
+                                       "a different curve; a rate helper "
+                                       "cannot be shared between "
+                                       "bootstrapped curves");
                             alive.push_back(helper);
+                        }
                     return alive;
                 }
 

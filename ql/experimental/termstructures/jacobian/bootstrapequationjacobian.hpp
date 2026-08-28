@@ -109,8 +109,14 @@ namespace QuantLib {
             Date firstDate = Traits::initialDate(curve);
             std::vector<ext::shared_ptr<typename Traits::helper>> alive;
             for (const auto& helper : instruments)
-                if (helper->pillarDate() > firstDate)
+                if (helper->pillarDate() > firstDate) {
+                    QL_REQUIRE(helper->termStructure() == curve,
+                               "the helper with pillar date " <<
+                               helper->pillarDate() << " is seated to a "
+                               "different curve; a rate helper cannot be "
+                               "shared between bootstrapped curves");
                     alive.push_back(helper);
+                }
 
             Size rows = alive.size();
             Size cols = times.size() - 1;

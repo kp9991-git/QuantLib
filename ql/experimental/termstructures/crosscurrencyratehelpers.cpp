@@ -351,21 +351,21 @@ namespace QuantLib {
         const Leg* legs[2] = {&baseCcyIborLeg_, &quoteCcyIborLeg_};
         const Handle<YieldTermStructure> discountHandles[2] = {
             baseCcyLegDiscountHandle(), quoteCcyLegDiscountHandle()};
-        detail::LegSensitivityAnalysis legAnalysis[2];
+        detail::LegContribution legContribution[2];
         for (Size legNo = 0; legNo < 2; ++legNo) {
-            if (!detail::analyzeLeg(*legs[legNo], **discountHandles[legNo], result,
-                                    legAnalysis[legNo],
+            if (!detail::decomposeLeg(*legs[legNo], **discountHandles[legNo], result,
+                                    legContribution[legNo],
                                     /*includeSettlementDateFlows=*/true))
                 return {};
-            legAnalysis[legNo].addFlow(initialNotionalExchangeDate_, -1.0);
-            legAnalysis[legNo].addFlow(finalNotionalExchangeDate_, 1.0);
+            legContribution[legNo].addFlow(initialNotionalExchangeDate_, -1.0);
+            legContribution[legNo].addFlow(finalNotionalExchangeDate_, 1.0);
         }
 
         // Q = -(npvQuote - npvBase)/bps, bps = -A_base or A_quote
         Size basisLegNo = isBasisOnFxBaseCurrencyLeg_ ? 0 : 1;
         detail::QuotientSensitivitySpec spec;
-        spec.numerator = {{&legAnalysis[0], 1.0, 0.0}, {&legAnalysis[1], -1.0, 0.0}};
-        spec.denominator = {{&legAnalysis[basisLegNo], 0.0,
+        spec.numerator = {{&legContribution[0], 1.0, 0.0}, {&legContribution[1], -1.0, 0.0}};
+        spec.denominator = {{&legContribution[basisLegNo], 0.0,
                              basisLegNo == 0 ? -1.0 : 1.0}};
         if (!detail::addQuotientSensitivities(result, spec))
             return {};
@@ -512,7 +512,7 @@ namespace QuantLib {
             }
         };
         struct Reset { Real rate; bool forecast; };
-        auto analyzeReset = [&](const FxReset& reset) -> Reset {
+        auto decomposeReset = [&](const FxReset& reset) -> Reset {
             if (reset.fixingDate() <= today) {
                 Real rate = historicalReset(reset.fixingDate());
                 if (rate != Null<Real>())
@@ -541,16 +541,16 @@ namespace QuantLib {
                            scale*r.rate/constCurve->discount(reset.valueDate())});
         };
 
-        // Handle FX-reset flows here and leave the others to analyzeLeg
+        // Handle FX-reset flows here and leave the others to decomposeLeg
         auto fxResetFlows = [&](const ext::shared_ptr<CashFlow>& cf,
                                 detail::FlowSensitivityData& d) {
             if (auto coupon = ext::dynamic_pointer_cast<FxResetCoupon>(cf)) {
-                auto r = analyzeReset(coupon->fxReset());
+                auto r = decomposeReset(coupon->fxReset());
                 if (r.rate == Null<Real>())
                     return detail::FlowHandling::Unsupported;
                 // scale the underlying coupon by the reset notional
-                detail::CouponSensitivityAnalysis ua;
-                if (!detail::analyzeCouponWithFallback(coupon->underlying(), ua, result))
+                detail::CouponContribution ua;
+                if (!detail::decomposeCouponWithFallback(coupon->underlying(), ua, result))
                     return detail::FlowHandling::Unsupported;
                 Real underlyingScale =
                     coupon->constantLegNotional()/coupon->underlying()->nominal();
@@ -567,11 +567,11 @@ namespace QuantLib {
                     d.amountSensitivities.push_back(
                         {sensitivity.curve, sensitivity.date,
                          underlyingScale*r.rate*sensitivity.derivative});
-                return detail::FlowHandling::Analyzed;
+                return detail::FlowHandling::Decomposed;
             }
             if (auto exchange = ext::dynamic_pointer_cast<FxResetNotionalExchange>(cf)) {
                 if (exchange->previousReset()) {
-                    auto r = analyzeReset(*exchange->previousReset());
+                    auto r = decomposeReset(*exchange->previousReset());
                     if (r.rate == Null<Real>())
                         return detail::FlowHandling::Unsupported;
                     d.amount += exchange->constantLegNotional()*r.rate;
@@ -580,7 +580,7 @@ namespace QuantLib {
                                           d.amountSensitivities);
                 }
                 if (exchange->currentReset()) {
-                    auto r = analyzeReset(*exchange->currentReset());
+                    auto r = decomposeReset(*exchange->currentReset());
                     if (r.rate == Null<Real>())
                         return detail::FlowHandling::Unsupported;
                     d.amount -= exchange->constantLegNotional()*r.rate;
@@ -588,16 +588,16 @@ namespace QuantLib {
                                           -exchange->constantLegNotional(),
                                           d.amountSensitivities);
                 }
-                return detail::FlowHandling::Analyzed;
+                return detail::FlowHandling::Decomposed;
             }
             return detail::FlowHandling::NotApplicable;
         };
 
-        detail::LegSensitivityAnalysis legAnalysis[2];
+        detail::LegContribution legContribution[2];
         for (Size legNo = 0; legNo < 2; ++legNo) {
             const Handle<YieldTermStructure>& legCurve = legNo == 0 ? baseDisc : quoteDisc;
-            if (!detail::analyzeLeg(swap_->leg(legNo), **legCurve, result,
-                                    legAnalysis[legNo],
+            if (!detail::decomposeLeg(swap_->leg(legNo), **legCurve, result,
+                                    legContribution[legNo],
                                     /*includeSettlementDateFlows=*/true, fxResetFlows))
                 return {};
         }
@@ -607,14 +607,14 @@ namespace QuantLib {
         Real payerBasis = basisLegNo == 0 ? -1.0 : 1.0;
         Real fxconvBasis = basisLegNo == 0 ? fx : 1.0;
         detail::QuotientSensitivitySpec spec;
-        spec.numerator = {{&legAnalysis[0], fx, 0.0}, {&legAnalysis[1], -1.0, 0.0}};
-        spec.denominator = {{&legAnalysis[basisLegNo], 0.0, payerBasis*fxconvBasis}};
+        spec.numerator = {{&legContribution[0], fx, 0.0}, {&legContribution[1], -1.0, 0.0}};
+        spec.denominator = {{&legContribution[basisLegNo], 0.0, payerBasis*fxconvBasis}};
         // FX conversion depends on both discount curves
         for (const auto& e : dFx) {
-            spec.numeratorExtra.push_back({e.curve, e.date, legAnalysis[0].npv*e.derivative});
+            spec.numeratorExtra.push_back({e.curve, e.date, legContribution[0].npv*e.derivative});
             if (basisLegNo == 0)
                 spec.denominatorExtra.push_back(
-                    {e.curve, e.date, payerBasis*legAnalysis[0].annuity*e.derivative});
+                    {e.curve, e.date, payerBasis*legContribution[0].annuity*e.derivative});
         }
         if (!detail::addQuotientSensitivities(result, spec))
             return {};

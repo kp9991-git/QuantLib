@@ -70,9 +70,9 @@ namespace QuantLib {
             bucket.emplace_back(d2, -scale*P1/(tau*P2*P2));
         }
 
-        CouponSensitivityAnalysis analyzeCoupon(const ext::shared_ptr<CashFlow>& cf,
+        CouponContribution decomposeCoupon(const ext::shared_ptr<CashFlow>& cf,
                                                 bool withSensitivities) {
-            CouponSensitivityAnalysis a;
+            CouponContribution a;
 
             if (!withSensitivities) {
                 if (auto cpn = ext::dynamic_pointer_cast<Coupon>(cf)) {
@@ -238,13 +238,13 @@ namespace QuantLib {
             return a;
         }
 
-        bool analyzeCouponWithFallback(const ext::shared_ptr<CashFlow>& cf,
-                                       CouponSensitivityAnalysis& a,
+        bool decomposeCouponWithFallback(const ext::shared_ptr<CashFlow>& cf,
+                                       CouponContribution& a,
                                        QuoteSensitivities& result) {
-            a = analyzeCoupon(cf, true);
+            a = decomposeCoupon(cf, true);
             if (a.supported)
                 return true;
-            a = analyzeCoupon(cf, false);
+            a = decomposeCoupon(cf, false);
             if (!a.supported)
                 return false;
             if (ext::dynamic_pointer_cast<FloatingRateCoupon>(cf) != nullptr) {
@@ -256,7 +256,7 @@ namespace QuantLib {
             return true;
         }
 
-        void LegSensitivityAnalysis::addFlow(const FlowSensitivityData& flow) {
+        void LegContribution::addFlow(const FlowSensitivityData& flow) {
             QL_REQUIRE(discountCurve != nullptr, "discount curve not set");
             DiscountFactor P = discountCurve->discount(flow.payDate);
             const TermStructure* discountKey = key(discountCurve);
@@ -273,7 +273,7 @@ namespace QuantLib {
                 annuitySensitivities.push_back({discountKey, flow.payDate, flow.ntau});
         }
 
-        void LegSensitivityAnalysis::addFlow(const Date& payDate,
+        void LegContribution::addFlow(const Date& payDate,
                                              Real amount,
                                              Real ntau) {
             FlowSensitivityData d;
@@ -283,13 +283,13 @@ namespace QuantLib {
             addFlow(d);
         }
 
-        bool analyzeLeg(const Leg& leg,
+        bool decomposeLeg(const Leg& leg,
                         const YieldTermStructure& discountCurve,
                         QuoteSensitivities& result,
-                        LegSensitivityAnalysis& analysis,
+                        LegContribution& contribution,
                         std::optional<bool> includeSettlementDateFlows,
-                        const FlowAnalyzer& customFlows) {
-            analysis.discountCurve = &discountCurve;
+                        const FlowDecomposer& customFlows) {
+            contribution.discountCurve = &discountCurve;
             Date settlement = discountCurve.referenceDate();
             for (const auto& cf : leg) {
                 if (cf->hasOccurred(settlement, includeSettlementDateFlows))
@@ -302,8 +302,8 @@ namespace QuantLib {
                     return false;
                 if (handling == FlowHandling::NotApplicable) {
                     if (ext::dynamic_pointer_cast<Coupon>(cf) != nullptr) {
-                        CouponSensitivityAnalysis a;
-                        if (!analyzeCouponWithFallback(cf, a, result))
+                        CouponContribution a;
+                        if (!decomposeCouponWithFallback(cf, a, result))
                             return false;
                         d.amount = a.amount;
                         d.ntau = a.ntau;
@@ -312,7 +312,7 @@ namespace QuantLib {
                         d.amount = cf->amount();
                     }
                 }
-                analysis.addFlow(d);
+                contribution.addFlow(d);
             }
             return true;
         }
@@ -355,9 +355,9 @@ namespace QuantLib {
                               Spread helperSpread,
                               const YieldTermStructure& discountCurve) {
             QuoteSensitivities result;
-            LegSensitivityAnalysis fixed, floating;
-            if (!analyzeLeg(fixedLeg, discountCurve, result, fixed) ||
-                !analyzeLeg(floatingLeg, discountCurve, result, floating))
+            LegContribution fixed, floating;
+            if (!decomposeLeg(fixedLeg, discountCurve, result, fixed) ||
+                !decomposeLeg(floatingLeg, discountCurve, result, floating))
                 return {};
 
             // fair rate = (floating NPV + spread * floating annuity) / fixed annuity
@@ -376,10 +376,10 @@ namespace QuantLib {
                                const YieldTermStructure& discountCurve,
                                std::optional<bool> includeSettlementDateFlows) {
             QuoteSensitivities result;
-            LegSensitivityAnalysis base, other;
-            if (!analyzeLeg(baseLeg, discountCurve, result, base,
+            LegContribution base, other;
+            if (!decomposeLeg(baseLeg, discountCurve, result, base,
                             includeSettlementDateFlows) ||
-                !analyzeLeg(otherLeg, discountCurve, result, other,
+                !decomposeLeg(otherLeg, discountCurve, result, other,
                             includeSettlementDateFlows))
                 return {};
 

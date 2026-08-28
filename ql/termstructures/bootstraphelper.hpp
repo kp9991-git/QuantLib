@@ -144,6 +144,9 @@ namespace QuantLib {
         */
         virtual void setTermStructure(TS*);
 
+        //! the term structure the helper is currently based on
+        TS* termStructure() const { return termStructure_; }
+
         //! earliest relevant date
         /*! The earliest date at which data are needed by the
             helper in order to provide a quote.

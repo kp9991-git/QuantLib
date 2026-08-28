@@ -268,8 +268,7 @@ namespace QuantLib {
         }
 
         //! dependency components, with dependents before their dependencies
-        inline std::vector<std::vector<Size>>
-        curveDependencyComponents(const CurveJacobianBlocks& blocks) {
+        inline std::vector<std::vector<Size>> curveDependencyComponents(const CurveJacobianBlocks& blocks) {
             const Size n = blocks.size();
             std::vector<Size> order(n, 0), low(n, 0), stack;
             std::vector<bool> onStack(n, false);

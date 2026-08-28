@@ -19,6 +19,9 @@
 
 /*! \file quotesensitivitycalculator.hpp
     \brief building blocks for analytical implied-quote sensitivities
+
+    Each block differentiates one level of the instrument's structure
+    (quote, leg, flow, coupon) and the contributions compose outward.
 */
 
 #ifndef quantlib_quote_sensitivity_calculator_hpp
@@ -56,7 +59,7 @@ namespace QuantLib {
                                            Real scale = 1.0);
 
         //! coupon value and forecast sensitivities
-        struct CouponSensitivityAnalysis {
+        struct CouponContribution {
             bool supported = false;
             //! nominal times accrual
             Real ntau = 0.0;
@@ -68,16 +71,16 @@ namespace QuantLib {
             CurvePointSensitivities amountSensitivities;
         };
 
-        /*! Analyzes fixed, Ibor (including weighted-index stubs), and
+        /*! Decomposes fixed, Ibor (including weighted-index stubs), and
             compounded overnight coupons. Unsupported cases return
             supported=false. */
-        CouponSensitivityAnalysis analyzeCoupon(const ext::shared_ptr<CashFlow>& cf,
+        CouponContribution decomposeCoupon(const ext::shared_ptr<CashFlow>& cf,
                                                 bool withSensitivities);
 
         /*! Retries value-only when analytic sensitivities are unavailable
             and marks the forecast curve incomplete. */
-        bool analyzeCouponWithFallback(const ext::shared_ptr<CashFlow>& cf,
-                                       CouponSensitivityAnalysis& analysis,
+        bool decomposeCouponWithFallback(const ext::shared_ptr<CashFlow>& cf,
+                                       CouponContribution& contribution,
                                        QuoteSensitivities& result);
 
         //! undiscounted cash-flow data
@@ -91,7 +94,7 @@ namespace QuantLib {
         };
 
         //! discounted leg values and their curve sensitivities
-        struct LegSensitivityAnalysis {
+        struct LegContribution {
             const YieldTermStructure* discountCurve = nullptr;
             Real npv = 0.0;
             Real annuity = 0.0;
@@ -103,28 +106,28 @@ namespace QuantLib {
             void addFlow(const Date& payDate, Real amount, Real ntau = 0.0);
         };
 
-        //! result from a custom cash-flow analyzer
+        //! result from a custom flow decomposer
         enum class FlowHandling {
-            NotApplicable, //!< use the default analysis
-            Analyzed,      //!< data supplied
-            Unsupported    //!< cannot analyze the leg
+            NotApplicable, //!< use the default decomposition
+            Decomposed,    //!< data supplied
+            Unsupported    //!< cannot decompose the leg
         };
-        using FlowAnalyzer =
+        using FlowDecomposer =
             std::function<FlowHandling(const ext::shared_ptr<CashFlow>&,
                                        FlowSensitivityData&)>;
 
-        /*! Adds future cash flows to the analysis, trying the custom analyzer
-            first. Returns false if a flow cannot be analyzed. */
-        bool analyzeLeg(const Leg& leg,
+        /*! Adds future cash flows to the contribution, trying the custom decomposer
+            first. Returns false if a flow cannot be decomposed. */
+        bool decomposeLeg(const Leg& leg,
                         const YieldTermStructure& discountCurve,
                         QuoteSensitivities& result,
-                        LegSensitivityAnalysis& analysis,
+                        LegContribution& contribution,
                         std::optional<bool> includeSettlementDateFlows = std::nullopt,
-                        const FlowAnalyzer& customFlows = {});
+                        const FlowDecomposer& customFlows = {});
 
         //! weighted NPV and annuity contribution
         struct LegTerm {
-            const LegSensitivityAnalysis* leg;
+            const LegContribution* leg;
             Real amountWeight = 0.0;
             Real ntauWeight = 0.0;
         };
