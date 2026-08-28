@@ -22,12 +22,15 @@
 
 namespace QuantLib {
 
-    MultiCurve::MultiCurve(Real accuracy)
-    : multiCurveBootstrap_(ext::make_shared<MultiCurveBootstrap>(accuracy)) {}
+    MultiCurve::MultiCurve(Real accuracy, bool analyticJacobian)
+    : multiCurveBootstrap_(
+          ext::make_shared<MultiCurveBootstrap>(accuracy, analyticJacobian)) {}
 
     MultiCurve::MultiCurve(const ext::shared_ptr<OptimizationMethod>& optimizer,
-                           const ext::shared_ptr<EndCriteria>& endCriteria)
-    : multiCurveBootstrap_(ext::make_shared<MultiCurveBootstrap>(optimizer, endCriteria)) {}
+                           const ext::shared_ptr<EndCriteria>& endCriteria,
+                           bool analyticJacobian)
+    : multiCurveBootstrap_(
+          ext::make_shared<MultiCurveBootstrap>(optimizer, endCriteria, analyticJacobian)) {}
 
     Handle<YieldTermStructure>
     MultiCurve::addBootstrappedCurve(RelinkableHandle<YieldTermStructure>& internalHandle,
