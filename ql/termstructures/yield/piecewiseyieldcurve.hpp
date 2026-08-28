@@ -27,6 +27,8 @@
 #define quantlib_piecewise_yield_curve_hpp
 
 #include <ql/patterns/lazyobject.hpp>
+#include <ql/math/matrix.hpp>
+#include <ql/experimental/termstructures/jacobian/curveriskpropagation.hpp>
 #include <ql/termstructures/iterativebootstrap.hpp>
 #include <ql/termstructures/globalbootstrap.hpp>
 #include <ql/termstructures/multicurve.hpp>
@@ -141,6 +143,21 @@ namespace QuantLib {
         const std::vector<Real>& data() const;
         std::vector<std::pair<Date, Real> > nodes() const;
         //@}
+        //! \name Jacobian
+        //@{
+        /*! Jacobian of helper quotes with respect to free curve nodes.
+            Rows follow alive helpers and columns follow data()[1..]. For
+            multi-curve dependencies, other curve nodes are fixed.
+        */
+        Matrix jacobian(std::vector<bool>* analyticEquations = nullptr) const;
+
+        /*! Jacobian of free curve nodes with respect to helper quotes.
+            For a stand-alone curve, this is inverse(jacobian()). For a
+            MultiCurve group, columns cover all members' quotes in
+            registration order. Group feedback is included.
+        */
+        Matrix inverseJacobian(std::vector<bool>* analyticEquations = nullptr) const;
+        //@}
         //! \name Observer interface
         //@{
         void update() override;
@@ -169,6 +186,7 @@ namespace QuantLib {
         //@}
       private:
         // methods
+        detail::BootstrapJacobian calculateJacobian() const;
         DiscountFactor discountImpl(Time) const override;
         // data members
         std::vector<ext::shared_ptr<typename Traits::helper> > instruments_;
@@ -179,7 +197,10 @@ namespace QuantLib {
         // it would increase the complexity---which is high enough
         // already.
         friend class Bootstrap<this_curve>;
+        // access needed for cross-curve Jacobians
+        template <class> friend struct detail::BootstrapJacobianAccess;
         Bootstrap<this_curve> bootstrap_;
+        detail::BootstrapJacobianCache jacobianCache_;
     };
 
 
@@ -216,8 +237,57 @@ namespace QuantLib {
         return base_curve::nodes();
     }
 
+    template <class Traits, class Interpolator, template <class> class Bootstrap>
+    detail::BootstrapJacobian
+    PiecewiseYieldCurve<Traits, Interpolator, Bootstrap>::calculateJacobian() const {
+        return detail::bootstrapEquationJacobian<Traits>(
+            this, instruments_, this->times_, this->data_, this->interpolation_,
+            !this->jumpDates().empty());
+    }
+
+    template <class Traits, class Interpolator, template <class> class Bootstrap>
+    Matrix PiecewiseYieldCurve<Traits, Interpolator, Bootstrap>::jacobian(
+                                       std::vector<bool>* analyticEquations) const {
+        calculate();
+        const detail::BootstrapJacobian& result =
+            jacobianCache_.getOrCompute([this] { return calculateJacobian(); });
+        if (analyticEquations != nullptr)
+            *analyticEquations = result.analyticEquations;
+        return result.matrix;
+    }
+
+    template <class Traits, class Interpolator, template <class> class Bootstrap>
+    Matrix PiecewiseYieldCurve<Traits, Interpolator, Bootstrap>::inverseJacobian(
+                                       std::vector<bool>* analyticEquations) const {
+        calculate();
+        if constexpr (detail::hasJacobianGroup<bootstrap_type>) {
+            auto group = bootstrap_.jacobianGroup();
+            if (!group.members.empty()) {
+                // differentiate known dependent wrappers numerically
+                detail::CurveCrossJacobianContext context;
+                context.addNumericallyPropagatedCurves(group.dependents);
+                context.assumeUnlistedCurvesIndependent();
+                QL_REQUIRE(group.target < group.members.size(),
+                           "invalid target curve in Jacobian group");
+                detail::CurveJacobianBlocks blocks =
+                    detail::curveJacobianBlocks(group.members, context);
+                if (analyticEquations != nullptr) {
+                    analyticEquations->clear();
+                    for (const auto& flags : blocks.analyticQuotes)
+                        analyticEquations->insert(analyticEquations->end(),
+                                                  flags.begin(), flags.end());
+                }
+                return detail::inverseCurveJacobianRows(blocks, group.target);
+            }
+        }
+        return detail::inverseBootstrapEquationJacobian(
+            jacobian(analyticEquations));
+    }
+
     template <class C, class I, template <class> class B>
     inline void PiecewiseYieldCurve<C,I,B>::update() {
+
+        jacobianCache_.invalidate();
 
         // it dispatches notifications only if (!calculated_ && !frozen_)
         LazyObject::update();
