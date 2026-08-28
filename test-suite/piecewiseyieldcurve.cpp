@@ -2004,11 +2004,11 @@ void testPiecewiseSpreadYieldCurveImpl() {
                            [](bool x) { return x; }));
 
     // Extrapolated analytical rows must differentiate the spread factor,
-    // leaving the base discount to SpreadTraits::sensitivityScale().
+    // leaving the base discount to SpreadTraits::discountFactorDerivative().
     auto spreadNode = detail::BootstrapJacobianAccess<Curve>::makeNode(curve);
     Date sensitivityDate = curve->dates().back() + 1 * Years;
     std::vector<Real> extrapolatedRow;
-    BOOST_REQUIRE(spreadNode.analyticRow({{sensitivityDate, 1.0}},
+    BOOST_REQUIRE(spreadNode.analyticEquationRow({{sensitivityDate, 1.0}},
                                          extrapolatedRow));
     BOOST_REQUIRE_EQUAL(extrapolatedRow.size(), curve->data().size() - 1);
     for (Size j = 1; j < curve->data().size(); ++j) {

@@ -38,18 +38,13 @@ namespace QuantLib {
 
     namespace detail {
 
-        template <class T, class Curve, class = void>
-        constexpr bool hasSensitivityScale = false;
+        template <class T, class = void>
+        constexpr bool supportsAnalyticJacobian = false;
 
-        template <class T, class Curve>
-        constexpr bool hasSensitivityScale<
-            T, Curve,
-            std::void_t<decltype(T::sensitivityScale(
-                            Time(), std::declval<const Curve*>())),
-                        decltype(T::extrapolationNodeWeights(
-                            Time(), std::declval<const Curve*>(),
-                            std::declval<const Interpolation&>())),
-                        decltype(T::firstDataPointTracksSecond)>> = true;
+        template <class T>
+        constexpr bool supportsAnalyticJacobian<
+            T, std::void_t<decltype(T::supportsAnalyticJacobian)>> =
+                T::supportsAnalyticJacobian;
 
         // access to curve internals for cross-curve Jacobians
         template <class Curve>
@@ -64,7 +59,7 @@ namespace QuantLib {
                              const std::vector<Time>& times,
                              const Interpolation& interpolation,
                              std::vector<Real>& row) {
-            if constexpr (!hasSensitivityScale<Traits, Curve>) {
+            if constexpr (!supportsAnalyticJacobian<Traits>) {
                 return false;
             } else {
                 constexpr bool firstTied = Traits::firstDataPointTracksSecond;
@@ -83,13 +78,14 @@ namespace QuantLib {
                     }
                     if (weights.empty())
                         return false;
-                    Real scale = Traits::sensitivityScale(t, curve);
+                    Real discountDerivative =
+                        Traits::discountFactorDerivative(t, curve);
                     for (const auto& [j, w] : weights) {
                         if (j > 0)
-                            row[j-1] += dQdP * scale * w;
+                            row[j-1] += dQdP * discountDerivative * w;
                         else if (firstTied)
                             // data[0] tracks data[1]
-                            row[0] += dQdP * scale * w;
+                            row[0] += dQdP * discountDerivative * w;
                         // otherwise data[0] is fixed
                     }
                 }
@@ -121,7 +117,7 @@ namespace QuantLib {
             Matrix J(rows, cols, 0.0);
             std::vector<bool> analytic(rows, false);
 
-            if constexpr (hasSensitivityScale<Traits, Curve>) {
+            if constexpr (supportsAnalyticJacobian<Traits>) {
                 // analytical weights do not include jumps
                 if (!curveHasJumps) {
                     std::vector<Real> row(cols);

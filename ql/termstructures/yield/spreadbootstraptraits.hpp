@@ -21,7 +21,7 @@ namespace QuantLib::detail {
         };
 
         template <class C>
-        static Real sensitivityScale(Time t, const C* c) {
+        static Real discountFactorDerivative(Time t, const C* c) {
             // The curve data are multiplicative discount spreads, while
             // helper sensitivities are with respect to the final discount.
             return c->baseCurve()->discount(t);
@@ -33,7 +33,7 @@ namespace QuantLib::detail {
                                  const Interpolation& interpolation) {
             // The inherited weights scale with the full discount
             // B(t)*S(t), but the curve nodes only drive the spread
-            // factor S(t); sensitivityScale() supplies B(t) separately,
+            // factor S(t). discountFactorDerivative() supplies B(t),
             // so divide the base discount back out.
             auto weights =
                 Discount::extrapolationNodeWeights(t, c, interpolation);

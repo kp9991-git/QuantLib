@@ -630,7 +630,7 @@ Array GlobalBootstrap<Curve>::evaluateCostFunction() const {
 
 template <class Curve>
 bool GlobalBootstrap<Curve>::analyticCostJacobian(Matrix& jac, const Array& x) const {
-    if constexpr (!detail::hasSensitivityScale<Traits, Curve>) {
+    if constexpr (!detail::supportsAnalyticJacobian<Traits>) {
         return false;
     } else {
         // additional terms and variables are unsupported

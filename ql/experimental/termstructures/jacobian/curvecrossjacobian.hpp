@@ -45,34 +45,53 @@ namespace QuantLib {
         constexpr bool hasBaseCurveHandle<
             C, std::void_t<decltype(std::declval<const C&>().baseCurve())>> = true;
 
-        template <class T, class Curve, class = void>
-        constexpr bool hasBaseCurveSensitivityTransform = false;
+        //! erased interface to the internals of one bootstrapped curve
+        class CurveJacobianImpl {
+          public:
+            virtual ~CurveJacobianImpl() = default;
+            //! runs the bootstrap when needed
+            virtual void ensure() const = 0;
+            //! number of free nodes
+            virtual Size numNodes() const = 0;
+            //! dates of the free nodes
+            virtual std::vector<Date> nodeDates() const = 0;
+            //! alive helpers in curve order
+            virtual std::vector<ext::shared_ptr<BootstrapHelper<YieldTermStructure>>>
+                aliveHelpers() const = 0;
+            /*! Converts dated curve-value sensitivities into one Jacobian
+                row over the free nodes. Returns false when analytical
+                weights are unavailable.
+            */
+            virtual bool analyticEquationRow(
+                const std::vector<std::pair<Date, Real>>& dateSensitivities,
+                std::vector<Real>& row) const = 0;
+            //! value of free node j (1-based over the stored data)
+            virtual Real nodeValue(Size j) const = 0;
+            //! writes free node j and invalidates any cached Jacobian
+            virtual void setNodeValue(Size j, Real v) const = 0;
+        };
 
-        template <class T, class Curve>
-        constexpr bool hasBaseCurveSensitivityTransform<
-            T, Curve,
-            std::void_t<decltype(T::transformBaseCurveSensitivities(
-                std::declval<const Curve*>(),
-                std::declval<const DatedCurveSensitivities&>(),
-                std::declval<DatedCurveSensitivities&>()))>> = true;
-
-        //! type-erased interface to a bootstrapped curve
+        //! type-erased view of a bootstrapped curve
         /*! A null curve means the interface is unavailable. */
         struct CurveJacobianNode {
             ext::shared_ptr<YieldTermStructure> curve;
             CurveId id = nullptr;
             //! term structures used to turn nodes into curve values
             CurveDependencies valueDependencies;
-            std::function<void()> ensure;
-            std::function<Size()> numNodes;
-            std::function<std::vector<Date>()> nodeDates;
-            std::function<std::vector<ext::shared_ptr<BootstrapHelper<YieldTermStructure>>>()>
-                aliveHelpers;
-            std::function<Matrix(std::vector<bool>*)> ownJacobian;
-            std::function<bool(const std::vector<std::pair<Date, Real>>&,
-                               std::vector<Real>&)> analyticRow;
-            std::function<Real(Size)> nodeValue;
-            std::function<void(Size, Real)> setNodeValue;
+            ext::shared_ptr<const CurveJacobianImpl> impl;
+
+            void ensure() const { impl->ensure(); }
+            Size numNodes() const { return impl->numNodes(); }
+            std::vector<Date> nodeDates() const { return impl->nodeDates(); }
+            std::vector<ext::shared_ptr<BootstrapHelper<YieldTermStructure>>>
+            aliveHelpers() const { return impl->aliveHelpers(); }
+            bool analyticEquationRow(
+                    const std::vector<std::pair<Date, Real>>& dateSensitivities,
+                    std::vector<Real>& row) const {
+                return impl->analyticEquationRow(dateSensitivities, row);
+            }
+            Real nodeValue(Size j) const { return impl->nodeValue(j); }
+            void setNodeValue(Size j, Real v) const { impl->setNodeValue(j, v); }
         };
 
         //! calibrated curves and derived wrappers in one group
@@ -105,6 +124,69 @@ namespace QuantLib {
         struct BootstrapJacobianAccess {
             using Traits = typename Curve::traits_type;
 
+            //! CurveJacobianImpl over a concrete bootstrapped curve
+            class Adapter final : public CurveJacobianImpl {
+              public:
+                explicit Adapter(ext::shared_ptr<Curve> curve)
+                : curve_(std::move(curve)) {}
+
+                void ensure() const override { curve_->calculate(); }
+
+                Size numNodes() const override {
+                    curve_->calculate();
+                    return curve_->times_.size() - 1;
+                }
+
+                std::vector<Date> nodeDates() const override {
+                    curve_->calculate();
+                    return std::vector<Date>(curve_->dates_.begin() + 1,
+                                             curve_->dates_.end());
+                }
+
+                std::vector<ext::shared_ptr<BootstrapHelper<YieldTermStructure>>>
+                aliveHelpers() const override {
+                    curve_->calculate();
+                    Date firstDate = Traits::initialDate(curve_.get());
+                    std::vector<ext::shared_ptr<BootstrapHelper<YieldTermStructure>>> alive;
+                    for (const auto& helper : curve_->instruments_)
+                        if (helper->pillarDate() > firstDate)
+                            alive.push_back(helper);
+                    return alive;
+                }
+
+                bool analyticEquationRow(
+                        const std::vector<std::pair<Date, Real>>& dateSensitivities,
+                        std::vector<Real>& row) const override {
+                    curve_->calculate();
+                    // analytical weights do not include jumps
+                    if (!curve_->jumpDates().empty())
+                        return false;
+                    std::vector<std::pair<Time, Real>> sensitivities;
+                    sensitivities.reserve(dateSensitivities.size());
+                    for (const auto& [date, dQdP] : dateSensitivities)
+                        sensitivities.emplace_back(
+                            curve_->timeFromReference(date), dQdP);
+                    return analyticBootstrapEquationRow<Traits>(
+                        curve_.get(), sensitivities, curve_->times_,
+                        curve_->interpolation_, row);
+                }
+
+                Real nodeValue(Size j) const override {
+                    curve_->calculate();
+                    return curve_->data_[j];
+                }
+
+                void setNodeValue(Size j, Real v) const override {
+                    // preserve interpolation iterators
+                    curve_->jacobianCache_.invalidate();
+                    Traits::updateGuess(curve_->data_, v, j);
+                    curve_->interpolation_.update();
+                }
+
+              private:
+                ext::shared_ptr<Curve> curve_;
+            };
+
             static CurveJacobianNode makeNode(const ext::shared_ptr<Curve>& curve) {
                 CurveJacobianNode n;
                 n.curve = curve;
@@ -113,7 +195,7 @@ namespace QuantLib {
                     if (!curve->baseCurve().empty()) {
                         const auto* baseId = static_cast<const TermStructure*>(
                             curve->baseCurve().currentLink().get());
-                        if constexpr (hasBaseCurveSensitivityTransform<Traits, Curve>) {
+                        if constexpr (supportsAnalyticJacobian<Traits>) {
                             n.valueDependencies.add(
                                 baseId,
                                 [curve](const DatedCurveSensitivities& input,
@@ -126,52 +208,7 @@ namespace QuantLib {
                         }
                     }
                 }
-                n.ensure = [curve] { curve->calculate(); };
-                n.numNodes = [curve]() -> Size {
-                    curve->calculate();
-                    return curve->times_.size() - 1;
-                };
-                n.nodeDates = [curve] {
-                    curve->calculate();
-                    return std::vector<Date>(curve->dates_.begin() + 1,
-                                             curve->dates_.end());
-                };
-                n.aliveHelpers = [curve] {
-                    curve->calculate();
-                    Date firstDate = Traits::initialDate(curve.get());
-                    std::vector<ext::shared_ptr<BootstrapHelper<YieldTermStructure>>> alive;
-                    for (const auto& helper : curve->instruments_)
-                        if (helper->pillarDate() > firstDate)
-                            alive.push_back(helper);
-                    return alive;
-                };
-                n.ownJacobian = [curve](std::vector<bool>* analyticEquations) {
-                    return curve->jacobian(analyticEquations);
-                };
-                n.analyticRow = [curve](const std::vector<std::pair<Date, Real>>& dateSens,
-                                        std::vector<Real>& row) {
-                    curve->calculate();
-                    // analytical weights do not include jumps
-                    if (!curve->jumpDates().empty())
-                        return false;
-                    std::vector<std::pair<Time, Real>> sensitivities;
-                    sensitivities.reserve(dateSens.size());
-                    for (const auto& [date, dQdP] : dateSens)
-                        sensitivities.emplace_back(curve->timeFromReference(date), dQdP);
-                    return analyticBootstrapEquationRow<Traits>(
-                        curve.get(), sensitivities, curve->times_,
-                        curve->interpolation_, row);
-                };
-                n.nodeValue = [curve](Size j) {
-                    curve->calculate();
-                    return curve->data_[j];
-                };
-                n.setNodeValue = [curve](Size j, Real v) {
-                    // preserve interpolation iterators
-                    curve->jacobianCache_.invalidate();
-                    Traits::updateGuess(curve->data_, v, j);
-                    curve->interpolation_.update();
-                };
+                n.impl = ext::make_shared<Adapter>(curve);
                 return n;
             }
         };
@@ -237,7 +274,7 @@ namespace QuantLib {
                            "cannot calculate a continuous zero rate at node " << i);
                 std::vector<std::pair<Date, Real>> sensitivity = {
                     {dates[i], -1.0 / (t * p)}};
-                if (n.analyticRow(sensitivity, row)) {
+                if (n.analyticEquationRow(sensitivity, row)) {
                     QL_REQUIRE(row.size() == cols,
                                "analytical zero/node row has " << row.size() <<
                                " entries instead of " << cols);
@@ -346,14 +383,14 @@ namespace QuantLib {
                         transformed = false;
                     }
                 if (indirectDependence) {
-                    if (transformed && b.analyticRow(targetSensitivities, row)) {
+                    if (transformed && b.analyticEquationRow(targetSensitivities, row)) {
                         std::copy(row.begin(), row.end(), J.row_begin(i));
                         analytic[i] = true;
                     }
                 } else if (bucket == s.sensitivities.end()) {
                     // no dependence on this curve
                     analytic[i] = true;
-                } else if (b.analyticRow(bucket->second, row)) {
+                } else if (b.analyticEquationRow(bucket->second, row)) {
                     std::copy(row.begin(), row.end(), J.row_begin(i));
                     analytic[i] = true;
                 }

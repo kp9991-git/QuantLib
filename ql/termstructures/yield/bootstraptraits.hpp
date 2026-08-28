@@ -140,8 +140,9 @@ namespace QuantLib {
         // upper bound for convergence loop
         static Size maxIterations() { return 100; }
 
+        static constexpr bool supportsAnalyticJacobian = true;
         template <class C>
-        static Real sensitivityScale(Time, const C*) {
+        static Real discountFactorDerivative(Time, const C*) {
             // curve data are discount factors
             return 1.0;
         }
@@ -275,8 +276,9 @@ namespace QuantLib {
         // upper bound for convergence loop
         static Size maxIterations() { return 100; }
 
+        static constexpr bool supportsAnalyticJacobian = true;
         template <class C>
-        static Real sensitivityScale(Time t, const C* c) {
+        static Real discountFactorDerivative(Time t, const C* c) {
             // P(t) = exp(-z(t)*t) with interpolated z
             return -t * c->discount(t, true);
         }
@@ -501,8 +503,9 @@ namespace QuantLib {
         // upper bound for convergence loop
         static Size maxIterations() { return 100; }
 
+        static constexpr bool supportsAnalyticJacobian = true;
         template <class C>
-        static Real sensitivityScale(Time t, const C* c) {
+        static Real discountFactorDerivative(Time t, const C* c) {
             // P(t) = 1/(1+z(t)*t) with interpolated z
             DiscountFactor d = c->discount(t, true);
             return -t * d * d;
