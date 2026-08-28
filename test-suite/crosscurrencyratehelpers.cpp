@@ -459,6 +459,34 @@ BOOST_AUTO_TEST_CASE(testIndexedCouponOverrides) {
     checkCrossCurrencyHelperCouponModes(std::nullopt, true);
 }
 
+BOOST_AUTO_TEST_CASE(testConstNotionalAnalyticQuoteSensitivities) {
+    BOOST_TEST_MESSAGE(
+        "Testing analytical constant-notional cross-currency quote sensitivities...");
+
+    CommonVars vars;
+    auto bootstrappedCurve = flatRate(vars.curveSettlementDt, 0.01, vars.dayCount);
+
+    for (bool collateralInBaseCurrency : {false, true}) {
+        Handle<YieldTermStructure> collateralCurve =
+            collateralInBaseCurrency ? vars.baseCcyIdxHandle : vars.quoteCcyIdxHandle;
+        for (bool basisOnBaseCurrencyLeg : {false, true}) {
+            auto helper =
+                ext::make_shared<ConstNotionalCrossCurrencyBasisSwapRateHelper>(
+                    makeQuoteHandle(-20.0 * vars.basisPoint), 2 * Years,
+                    vars.instrumentSettlementDays, vars.calendar,
+                    vars.businessConvention, vars.endOfMonth, vars.baseCcyIdx,
+                    vars.quoteCcyIdx, collateralCurve,
+                    collateralInBaseCurrency, basisOnBaseCurrencyLeg);
+            helper->setTermStructure(bootstrappedCurve.get());
+
+            QuoteSensitivities sensitivities =
+                helper->impliedQuoteSensitivitiesByCurve();
+            BOOST_REQUIRE(sensitivities.available);
+            BOOST_CHECK(sensitivities.incomplete.empty());
+        }
+    }
+}
+
 BOOST_AUTO_TEST_CASE(testConstNotionalBasisSwapsWithCollateralInQuoteAndBasisInBaseCcy) {
     BOOST_TEST_MESSAGE("Testing constant notional basis swaps with collateral in quote ccy and "
                        "basis in base ccy...");
@@ -744,6 +772,11 @@ BOOST_AUTO_TEST_CASE(testMtMHelperMatchesStandaloneWithAsymmetricFxHolidays) {
     eurDiscount->enableExtrapolation();
     eurDiscount->discount(helper->maturityDate());
     Handle<YieldTermStructure> eurDiscountHandle(eurDiscount);
+
+    QuoteSensitivities sensitivities =
+        helper->impliedQuoteSensitivitiesByCurve();
+    BOOST_REQUIRE(sensitivities.available);
+    BOOST_CHECK(sensitivities.incomplete.empty());
 
     auto helperSwap = helper->swap();
     auto standalone = ext::make_shared<MtMCrossCurrencyBasisSwap>(

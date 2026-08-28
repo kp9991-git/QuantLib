@@ -47,6 +47,31 @@ struct BasisSwapQuote {
     Spread basis;
 };
 
+void checkAnalyticQuoteSensitivities(
+        const std::vector<ext::shared_ptr<RateHelper>>& helpers,
+        const char* helperType,
+        bool expectComplete = true) {
+    for (Size i = 0; i < helpers.size(); ++i) {
+        QuoteSensitivities sensitivities =
+            helpers[i]->impliedQuoteSensitivitiesByCurve();
+        BOOST_REQUIRE_MESSAGE(
+            sensitivities.available,
+            helperType << " helper " << i
+                       << " did not provide analytical sensitivities");
+        if (expectComplete) {
+            BOOST_CHECK_MESSAGE(
+                sensitivities.incomplete.empty(),
+                helperType << " helper " << i
+                           << " reported incomplete sensitivities");
+        } else {
+            BOOST_CHECK_MESSAGE(
+                sensitivities.incomplete.size() == 1,
+                helperType << " helper " << i
+                           << " did not report exactly one incomplete curve");
+        }
+    }
+}
+
 void testIborIborBootstrap(bool bootstrapBaseCurve, Integer paymentLag = 0) {
     std::vector<BasisSwapQuote> quotes = {
         { 1, Years,  0.0010 },
@@ -89,6 +114,8 @@ void testIborIborBootstrap(bool bootstrapBaseCurve, Integer paymentLag = 0) {
 
     auto bootstrappedCurve = ext::make_shared<PiecewiseYieldCurve<ZeroYield, Linear>>
         (0, calendar, helpers, Actual365Fixed());
+    bootstrappedCurve->discount(helpers.back()->pillarDate());
+    checkAnalyticQuoteSensitivities(helpers, "ibor-ibor basis swap");
 
     Date today = Settings::instance().evaluationDate();
     Date spot = calendar.advance(today, settlementDays, Days);
@@ -251,7 +278,11 @@ void testOvernightIborBootstrap(bool externalDiscountCurve,
 
 void testOvernightOvernightBootstrap(bool externalDiscountCurve,
                                      bool bootstrapBaseCurve,
-                                     bool linkDiscountCurveAfterConstruction = false) {
+                                     bool linkDiscountCurveAfterConstruction = false,
+                                     RateAveraging::Type baseAveragingMethod =
+                                         RateAveraging::Simple,
+                                     RateAveraging::Type otherAveragingMethod =
+                                         RateAveraging::Compound) {
     std::vector<BasisSwapQuote> quotes = {
         { 1, Years, 0.0008 },
         { 2, Years, 0.0010 },
@@ -266,8 +297,6 @@ void testOvernightOvernightBootstrap(bool externalDiscountCurve,
     auto endOfMonth = false;
     auto paymentLag = 2;
     auto paymentFrequency = Quarterly;
-    auto baseAveragingMethod = RateAveraging::Simple;
-    auto otherAveragingMethod = RateAveraging::Compound;
 
     Handle<YieldTermStructure> knownForecastCurve(flatRate(0.01, Actual365Fixed()));
 
@@ -315,6 +344,12 @@ void testOvernightOvernightBootstrap(bool externalDiscountCurve,
         bootstrappedCurve->discount(basisHelpers.back()->pillarDate());
         discountCurve.linkTo(flatRate(0.005, Actual365Fixed()));
     }
+
+    bootstrappedCurve->discount(basisHelpers.back()->pillarDate());
+    bool expectComplete = baseAveragingMethod == RateAveraging::Compound &&
+                          otherAveragingMethod == RateAveraging::Compound;
+    checkAnalyticQuoteSensitivities(
+        helpers, "overnight-overnight basis swap", expectComplete);
 
     if (bootstrapBaseCurve) {
         baseIndex = ext::make_shared<FedFunds>(bootstrappedCurveHandle);
@@ -886,6 +921,14 @@ BOOST_AUTO_TEST_CASE(testOvernightOvernightBootstrapWithLateLinkedDiscountCurve)
                        "late-linked discount curve...");
 
     testOvernightOvernightBootstrap(true, false, true);
+}
+
+BOOST_AUTO_TEST_CASE(testOvernightOvernightAnalyticQuoteSensitivities) {
+    BOOST_TEST_MESSAGE(
+        "Testing analytical overnight-overnight basis-swap quote sensitivities...");
+
+    testOvernightOvernightBootstrap(
+        true, false, false, RateAveraging::Compound, RateAveraging::Compound);
 }
 
 BOOST_AUTO_TEST_CASE(testOvernightOvernightDateGenerationRule) {

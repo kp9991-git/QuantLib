@@ -26,9 +26,11 @@
 #include <ql/cashflows/floatingratecoupon.hpp>
 #include <ql/cashflows/simplecashflow.hpp>
 #include <ql/cashflows/fixedratecoupon.hpp>
+#include <ql/currencies/exchangeratemanager.hpp>
 #include <ql/experimental/fx/discountingmtmcrosscurrencybasisswapengine.hpp>
 #include <ql/experimental/fx/fxresetcashflows.hpp>
 #include <ql/experimental/termstructures/crosscurrencyratehelpers.hpp>
+#include <ql/money.hpp>
 #include <ql/pricingengines/swap/discountingconstnotionalcrosscurrencyswapengine.hpp>
 #include <ql/utilities/null_deleter.hpp>
 #include <utility>
@@ -482,6 +484,10 @@ namespace QuantLib {
             resettingLegNo == 0 ? quoteDisc : baseDisc;
         const auto* resetKey = static_cast<const TermStructure*>(&**resetCurve);
         const auto* constKey = static_cast<const TermStructure*>(&**constCurve);
+        const Currency& resetCcy =
+            resettingLegNo == 0 ? baseCcyIdx_->currency() : quoteCcyIdx_->currency();
+        const Currency& constCcy =
+            resettingLegNo == 0 ? quoteCcyIdx_->currency() : baseCcyIdx_->currency();
 
         // FX settlement date used by the swap engine
         Calendar fxCalendar = (fxResetFixingDays_ != 0 && fxResetFixingCalendar_.empty())
@@ -496,10 +502,25 @@ namespace QuantLib {
             {baseKey, fxSettle, -fx/baseDisc->discount(fxSettle)}};
 
         // same convention as DiscountingFxResetPricer::fxRate at unit spot
+        auto historicalReset = [&](const Date& fixingDate) -> Real {
+            try {
+                ExchangeRate rate = ExchangeRateManager::instance().lookup(
+                    constCcy, resetCcy, fixingDate);
+                return rate.exchange(Money(1.0, constCcy)).value();
+            } catch (Error&) {
+                return Null<Real>();
+            }
+        };
         struct Reset { Real rate; bool forecast; };
         auto analyzeReset = [&](const FxReset& reset) -> Reset {
-            if (reset.fixingDate() <= today)
-                return {Null<Real>(), false};
+            if (reset.fixingDate() <= today) {
+                Real rate = historicalReset(reset.fixingDate());
+                if (rate != Null<Real>())
+                    return {rate, false};
+                if (reset.fixingDate() < today ||
+                    Settings::instance().enforcesTodaysHistoricFixings())
+                    return {Null<Real>(), false};
+            }
             Real rate = (resetCurve->discount(fxSettle)/constCurve->discount(fxSettle))
                 * (constCurve->discount(reset.valueDate())
                    /resetCurve->discount(reset.valueDate()));

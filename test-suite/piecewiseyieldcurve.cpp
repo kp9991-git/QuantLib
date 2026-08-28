@@ -422,6 +422,23 @@ struct CommonVars {
     }
 };
 
+void checkAnalyticQuoteSensitivities(
+        const std::vector<ext::shared_ptr<RateHelper>>& helpers,
+        const char* helperType) {
+    for (Size i = 0; i < helpers.size(); ++i) {
+        QuoteSensitivities sensitivities =
+            helpers[i]->impliedQuoteSensitivitiesByCurve();
+        BOOST_REQUIRE_MESSAGE(
+            sensitivities.available,
+            helperType << " helper " << i
+                       << " did not provide analytical sensitivities");
+        BOOST_CHECK_MESSAGE(
+            sensitivities.incomplete.empty(),
+            helperType << " helper " << i
+                       << " reported incomplete sensitivities");
+    }
+}
+
 
 template <class T, class I, template<class C> class B>
 void testCurveConsistency(CommonVars& vars,
@@ -2202,6 +2219,8 @@ BOOST_AUTO_TEST_CASE(testIterativeBootstrapRetries) {
     for (const auto date : arsYts->dates()) {
         QL_CHECK_CLOSE(arsYts->discount(date), datedArsYts->discount(date), 1e-6);
     }
+    checkAnalyticQuoteSensitivities(instruments, "tenor-based FX swap");
+    checkAnalyticQuoteSensitivities(datedInstruments, "dated FX swap");
 }
 
 BOOST_AUTO_TEST_CASE(testCustomFuturesHelpers) {
@@ -2275,6 +2294,8 @@ BOOST_AUTO_TEST_CASE(testCustomFuturesHelpers) {
                     << "\n estimated rate: " << io::rate(calculated)
                     << "\n expected rate:  " << io::rate(expected));
     }
+
+    checkAnalyticQuoteSensitivities(helpers, "futures");
 }
 
 
@@ -2383,6 +2404,8 @@ BOOST_AUTO_TEST_CASE(testFraForDates) {
                         "\n  expected rate:  " << io::rate(expectedRate));
         }
     }
+
+    checkAnalyticQuoteSensitivities(helpers, "FRA");
 }
 
 BOOST_AUTO_TEST_CASE(testDatedSwapHelpers) {
