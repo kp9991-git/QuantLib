@@ -29,6 +29,7 @@
 #include <ql/math/interpolations/cubicinterpolation.hpp>
 #include <ql/math/interpolations/mixedinterpolation.hpp>
 #include <ql/utilities/dataformatters.hpp>
+#include <algorithm>
 
 namespace QuantLib {
 
@@ -395,6 +396,46 @@ namespace QuantLib {
             Real secondDerivative(Real x) const override {
                 return derivative(x)*interpolation_.derivative(x, true) +
                             value(x)*interpolation_.secondDerivative(x, true);
+            }
+            std::vector<std::pair<Size, Real>> nodeWeights(Real x) const override {
+                // f(x) = exp(g(x)) with g interpolating log(y)
+                // df/dy_j = f(x) * dg/d(log y_j) / y_j
+                auto weights = interpolation_.nodeWeights(x, true);
+                if (weights.empty())
+                    return weights;
+                Real v = value(x);
+                for (auto& w : weights)
+                    w.second *= v/this->yBegin_[w.first];
+                return weights;
+            }
+            std::vector<std::pair<Size, Real>> derivativeNodeWeights(Real x) const override {
+                // f = exp(g), with g interpolating log(y), hence
+                // d(f')/d(y_j) = f/y_j * (g' w_j + w'_j).
+                auto valueWeights = interpolation_.nodeWeights(x, true);
+                auto slopeWeights =
+                    interpolation_.derivativeNodeWeights(x, true);
+                if (valueWeights.empty() || slopeWeights.empty())
+                    return {};
+
+                std::vector<std::pair<Size, Real>> weights;
+                weights.reserve(valueWeights.size() + slopeWeights.size());
+                Real slope = interpolation_.derivative(x, true);
+                for (const auto& [j, w] : valueWeights)
+                    weights.emplace_back(j, slope*w);
+                for (const auto& [j, w] : slopeWeights) {
+                    auto found = std::find_if(
+                        weights.begin(), weights.end(),
+                        [=](const auto& entry) { return entry.first == j; });
+                    if (found == weights.end())
+                        weights.emplace_back(j, w);
+                    else
+                        found->second += w;
+                }
+
+                Real v = value(x);
+                for (auto& [j, w] : weights)
+                    w *= v/this->yBegin_[j];
+                return weights;
             }
 
           private:
