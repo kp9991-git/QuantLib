@@ -980,7 +980,7 @@
     </ClInclude>
     <ClInclude Include="ql\instruments\fxforward.hpp">
       <Filter>instruments</Filter>
-    </ClInclude>	
+    </ClInclude>
     <ClInclude Include="ql\instruments\bonds\all.hpp">
       <Filter>instruments\bonds</Filter>
     </ClInclude>
@@ -2609,7 +2609,7 @@
     </ClInclude>
     <ClInclude Include="ql\pricingengines\forward\discountingfxforwardengine.hpp">
       <Filter>pricingengines\forward</Filter>
-    </ClInclude>	
+    </ClInclude>
     <ClInclude Include="ql\pricingengines\quanto\all.hpp">
       <Filter>pricingengines\quanto</Filter>
     </ClInclude>
@@ -4500,6 +4500,9 @@
     <ClInclude Include="ql\experimental\termstructures\jacobian\curveriskpropagation.hpp">
       <Filter>experimental\termstructures\jacobian</Filter>
     </ClInclude>
+    <ClInclude Include="ql\experimental\termstructures\overnightindexedfundingratehelper.hpp">
+      <Filter>experimental\termstructures</Filter>
+    </ClInclude>
     <ClInclude Include="ql\experimental\termstructures\quotesensitivitycalculator.hpp">
       <Filter>experimental\termstructures</Filter>
     </ClInclude>
@@ -5041,7 +5044,7 @@
     </ClCompile>
     <ClCompile Include="ql\instruments\fxforward.cpp">
       <Filter>instruments</Filter>
-    </ClCompile>	
+    </ClCompile>
     <ClCompile Include="ql\instruments\bonds\amortizingcmsratebond.cpp">
       <Filter>instruments\bonds</Filter>
     </ClCompile>
@@ -6229,7 +6232,7 @@
     </ClCompile>
     <ClCompile Include="ql\pricingengines\forward\discountingfxforwardengine.cpp">
       <Filter>pricingengines\forward</Filter>
-    </ClCompile>	
+    </ClCompile>
     <ClCompile Include="ql\pricingengines\inflation\inflationcapfloorengines.cpp">
       <Filter>pricingengines\inflation</Filter>
     </ClCompile>
@@ -7422,7 +7425,11 @@
     </ClCompile>
     <ClCompile Include="ql\experimental\termstructures\crosscurrencyratehelpers.cpp">
       <Filter>experimental\termstructures</Filter>
-    </ClCompile>    <ClCompile Include="ql\experimental\termstructures\quotesensitivitycalculator.cpp">
+    </ClCompile>
+    <ClCompile Include="ql\experimental\termstructures\overnightindexedfundingratehelper.cpp">
+      <Filter>experimental\termstructures</Filter>
+    </ClCompile>
+    <ClCompile Include="ql\experimental\termstructures\quotesensitivitycalculator.cpp">
       <Filter>experimental\termstructures</Filter>
     </ClCompile>
     <ClCompile Include="ql\experimental\asian\analytic_cont_geom_av_price_heston.cpp">
