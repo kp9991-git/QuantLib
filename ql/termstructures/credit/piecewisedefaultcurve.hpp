@@ -190,12 +190,11 @@ namespace QuantLib {
         */
         Matrix jacobian(std::vector<bool>* analyticEquations = nullptr) const {
             calculate();
-            return jacobianCache_.get(
-                analyticEquations, [this](std::vector<bool>* equations) {
-                return detail::bootstrapEquationJacobian<Traits>(
-                    this, instruments_, this->times_, this->data_,
-                    this->interpolation_, !this->jumpDates().empty(), equations);
-            });
+            const detail::BootstrapJacobian& result =
+                jacobianCache_.getOrCompute([this] { return calculateJacobian(); });
+            if (analyticEquations != nullptr)
+                *analyticEquations = result.analyticEquations;
+            return result.matrix;
         }
         //! Jacobian of curve nodes with respect to helper quotes
         Matrix inverseJacobian(
@@ -214,6 +213,7 @@ namespace QuantLib {
         void performCalculations() const override;
         //@}
         // methods
+        detail::BootstrapJacobian calculateJacobian() const;
         Probability survivalProbabilityImpl(Time) const override;
         Real defaultDensityImpl(Time) const override;
         Real hazardRateImpl(Time) const override;
@@ -233,6 +233,14 @@ namespace QuantLib {
 
 
     // inline definitions
+
+    template <class C, class I, template <class> class B>
+    detail::BootstrapJacobian
+    PiecewiseDefaultCurve<C, I, B>::calculateJacobian() const {
+        return detail::bootstrapEquationJacobian<C>(
+            this, instruments_, this->times_, this->data_, this->interpolation_,
+            !this->jumpDates().empty());
+    }
 
     template <class C, class I, template <class> class B>
     inline Date PiecewiseDefaultCurve<C,I,B>::maxDate() const {

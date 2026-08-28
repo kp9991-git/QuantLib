@@ -186,6 +186,7 @@ namespace QuantLib {
         //@}
       private:
         // methods
+        detail::BootstrapJacobian calculateJacobian() const;
         DiscountFactor discountImpl(Time) const override;
         // data members
         std::vector<ext::shared_ptr<typename Traits::helper> > instruments_;
@@ -237,15 +238,22 @@ namespace QuantLib {
     }
 
     template <class Traits, class Interpolator, template <class> class Bootstrap>
+    detail::BootstrapJacobian
+    PiecewiseYieldCurve<Traits, Interpolator, Bootstrap>::calculateJacobian() const {
+        return detail::bootstrapEquationJacobian<Traits>(
+            this, instruments_, this->times_, this->data_, this->interpolation_,
+            !this->jumpDates().empty());
+    }
+
+    template <class Traits, class Interpolator, template <class> class Bootstrap>
     Matrix PiecewiseYieldCurve<Traits, Interpolator, Bootstrap>::jacobian(
                                        std::vector<bool>* analyticEquations) const {
         calculate();
-        return jacobianCache_.get(
-            analyticEquations, [this](std::vector<bool>* equations) {
-            return detail::bootstrapEquationJacobian<Traits>(
-                this, instruments_, this->times_, this->data_,
-                this->interpolation_, !this->jumpDates().empty(), equations);
-        });
+        const detail::BootstrapJacobian& result =
+            jacobianCache_.getOrCompute([this] { return calculateJacobian(); });
+        if (analyticEquations != nullptr)
+            *analyticEquations = result.analyticEquations;
+        return result.matrix;
     }
 
     template <class Traits, class Interpolator, template <class> class Bootstrap>

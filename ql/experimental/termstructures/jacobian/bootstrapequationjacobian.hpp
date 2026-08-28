@@ -93,16 +93,21 @@ namespace QuantLib {
             }
         }
 
+        //! bootstrap-equation Jacobian and its calculation metadata
+        struct BootstrapJacobian {
+            Matrix matrix;
+            std::vector<bool> analyticEquations;
+        };
+
         //! Jacobian of the bootstrap equations with respect to curve nodes
         template <class Traits, class Curve>
-        Matrix bootstrapEquationJacobian(
+        BootstrapJacobian bootstrapEquationJacobian(
                  const Curve* curve,
                  const std::vector<ext::shared_ptr<typename Traits::helper>>& instruments,
                  const std::vector<Time>& times,
                  std::vector<Real>& data,
                  Interpolation& interpolation,
                  bool curveHasJumps,
-                 std::vector<bool>* analyticEquations,
                  bool numericalFallback = true) {
 
             // alive helpers in curve order
@@ -183,9 +188,7 @@ namespace QuantLib {
                 }
             }
 
-            if (analyticEquations != nullptr)
-                *analyticEquations = std::move(analytic);
-            return J;
+            return {std::move(J), std::move(analytic)};
         }
 
         //! cached bootstrap-equation Jacobian of a curve
@@ -196,21 +199,19 @@ namespace QuantLib {
         class BootstrapJacobianCache {
           public:
             void invalidate() const { valid_ = false; }
+
             template <class Compute>
-            Matrix get(std::vector<bool>* analyticEquations,
-                       const Compute& compute) const {
+            const BootstrapJacobian& getOrCompute(const Compute& compute) const {
                 if (!valid_) {
-                    matrix_ = compute(&analyticEquations_);
+                    result_ = compute();
                     valid_ = true;
                 }
-                if (analyticEquations != nullptr)
-                    *analyticEquations = analyticEquations_;
-                return matrix_;
+                return result_;
             }
+
           private:
             mutable bool valid_ = false;
-            mutable Matrix matrix_;
-            mutable std::vector<bool> analyticEquations_;
+            mutable BootstrapJacobian result_;
         };
 
         //! invert a square bootstrap-equation Jacobian

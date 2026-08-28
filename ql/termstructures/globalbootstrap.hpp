@@ -639,15 +639,16 @@ bool GlobalBootstrap<Curve>::analyticCostJacobian(Matrix& jac, const Array& x) c
 
         setCostFunctionArgument(x);
 
-        std::vector<bool> analytic;
-        Matrix J = detail::bootstrapEquationJacobian<Traits>(
-            ts_, aliveInstruments_, ts_->times_, ts_->data_, ts_->interpolation_,
-            !ts_->jumpDates().empty(), &analytic, false);
-        for (auto flag : analytic)  // NOLINT(readability-use-anyofallof)
+        detail::BootstrapJacobian result =
+            detail::bootstrapEquationJacobian<Traits>(
+                ts_, aliveInstruments_, ts_->times_, ts_->data_, ts_->interpolation_,
+                !ts_->jumpDates().empty(), false);
+        for (auto flag : result.analyticEquations)  // NOLINT(readability-use-anyofallof)
             if (!flag)
                 return false;
 
         // cost values are w_i * (quote_i - impliedQuote_i)
+        const Matrix& J = result.matrix;
         Array dTransform = transformDerivatives(x);
         for (Size j = 0; j < J.columns(); ++j) {
             for (Size i = 0; i < J.rows(); ++i)
