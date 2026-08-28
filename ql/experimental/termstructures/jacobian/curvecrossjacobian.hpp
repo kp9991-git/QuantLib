@@ -405,23 +405,32 @@ namespace QuantLib {
                 [&](Size i) { return helpers[i]->impliedQuote(); });
 
             if (analyticEquations != nullptr)
-                *analyticEquations = analytic;
+                *analyticEquations = std::move(analytic);
             return J;
         }
+
+        //! dense inverse Jacobian of a curve group, with its layout
+        struct CurveGroupInverse {
+            //! inverse of the stacked bootstrap-equation Jacobian
+            Matrix inverse;
+            //! cumulative free-node (row) counts including the final total
+            std::vector<Size> nodeOffset;
+            //! cumulative helper (column) counts including the final total
+            std::vector<Size> quoteOffset;
+            //! analytical status of each helper equation
+            std::vector<bool> analyticEquations;
+        };
 
         /*! Inverse Jacobian for a curve group.
 
               \f[ \sum_P J_{XP} \, dz_P = dq_X \f]
 
             Rows are nodes and columns are alive helpers in curve order.
-            Optional offsets include the final total. A quote is analytical
-            only when all its blocks are analytical.
+            Offsets include the final total. A quote is analytical only
+            when all its blocks are analytical.
         */
-        inline Matrix curveGroupInverseJacobian(
+        inline CurveGroupInverse curveGroupInverseJacobian(
                 const std::vector<CurveJacobianNode>& curves,
-                std::vector<Size>* rowOffsets = nullptr,
-                std::vector<Size>* colOffsets = nullptr,
-                std::vector<bool>* analyticEquations = nullptr,
                 const CurveCrossJacobianContext& baseContext = {}) {
             Size n = curves.size();
             std::vector<Size> nodeOffset(n + 1, 0), quoteOffset(n + 1, 0);
@@ -456,13 +465,8 @@ namespace QuantLib {
                 }
             }
 
-            if (rowOffsets != nullptr)
-                *rowOffsets = nodeOffset;
-            if (colOffsets != nullptr)
-                *colOffsets = quoteOffset;
-            if (analyticEquations != nullptr)
-                *analyticEquations = analytic;
-            return inverse(J);
+            return {inverse(J), std::move(nodeOffset),
+                    std::move(quoteOffset), std::move(analytic)};
         }
 
     }

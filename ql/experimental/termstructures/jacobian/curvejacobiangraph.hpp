@@ -50,18 +50,6 @@ namespace QuantLib {
             dependency metadata do not make the graph incomplete.
         */
         bool isComplete() const {
-            std::set<detail::CurveId> registered = derivedIds_;
-            for (const auto& node : nodes_)
-                registered.insert(node.id);
-
-            auto isRegistered = [&](detail::CurveId dependency) {
-                return registered.count(dependency) != 0;
-            };
-            auto dependenciesAreRegistered = [&](const auto& dependencies) {
-                return std::all_of(
-                    dependencies.begin(), dependencies.end(), isRegistered);
-            };
-
             for (const auto& node : nodes_) {
                 if (!dependenciesAreRegistered(
                         node.valueDependencies.targets()))
@@ -151,24 +139,22 @@ namespace QuantLib {
                 std::vector<bool>* analyticEquations = nullptr) const {
             requireComplete();
             Size a = index(of), b = index(withRespectTo);
-            std::vector<Size> rowOffsets, colOffsets;
-            std::vector<bool> allAnalytic;
-            detail::CurveCrossJacobianContext context = jacobianContext(false);
-            Matrix inverse = detail::curveGroupInverseJacobian(
-                nodes_, &rowOffsets, &colOffsets, &allAnalytic, context);
+            detail::CurveGroupInverse dense =
+                detail::curveGroupInverseJacobian(nodes_, jacobianContext(false));
+            const std::vector<Size>& rows = dense.nodeOffset;
+            const std::vector<Size>& cols = dense.quoteOffset;
 
-            Matrix block(rowOffsets[a + 1] - rowOffsets[a],
-                         colOffsets[b + 1] - colOffsets[b]);
+            Matrix block(rows[a + 1] - rows[a], cols[b + 1] - cols[b]);
             for (Size i = 0; i < block.rows(); ++i)
                 std::copy(
-                    inverse.row_begin(rowOffsets[a] + i) + colOffsets[b],
-                    inverse.row_begin(rowOffsets[a] + i) + colOffsets[b + 1],
+                    dense.inverse.row_begin(rows[a] + i) + cols[b],
+                    dense.inverse.row_begin(rows[a] + i) + cols[b + 1],
                     block.row_begin(i));
 
             if (analyticEquations != nullptr)
                 *analyticEquations = std::vector<bool>(
-                    allAnalytic.begin() + colOffsets[b],
-                    allAnalytic.begin() + colOffsets[b + 1]);
+                    dense.analyticEquations.begin() + cols[b],
+                    dense.analyticEquations.begin() + cols[b + 1]);
             return block;
         }
 
@@ -199,30 +185,29 @@ namespace QuantLib {
             const std::map<const YieldTermStructure*, Array>& nodeRisk,
                      std::vector<bool>* analyticEquations = nullptr) const {
             requireComplete();
-            std::vector<Size> rowOffsets, colOffsets;
-            std::vector<bool> allAnalytic;
-            detail::CurveCrossJacobianContext context = jacobianContext(false);
-            Matrix S = detail::curveGroupInverseJacobian(
-                nodes_, &rowOffsets, &colOffsets, &allAnalytic, context);
+            detail::CurveGroupInverse dense =
+                detail::curveGroupInverseJacobian(nodes_, jacobianContext(false));
+            const std::vector<Size>& rows = dense.nodeOffset;
+            const std::vector<Size>& cols = dense.quoteOffset;
             if (analyticEquations != nullptr)
-                *analyticEquations = std::move(allAnalytic);
+                *analyticEquations = std::move(dense.analyticEquations);
 
             // s is the stacked node risk and r = transpose(S) * s
-            Array s(S.rows(), 0.0);
+            Array s(dense.inverse.rows(), 0.0);
             for (const auto& [curve, risk] : nodeRisk) {
                 Size a = index(*curve);
-                QL_REQUIRE(risk.size() == rowOffsets[a+1] - rowOffsets[a],
+                QL_REQUIRE(risk.size() == rows[a+1] - rows[a],
                            "node risk size (" << risk.size() <<
                            ") does not match the number of curve nodes (" <<
-                           rowOffsets[a+1] - rowOffsets[a] << ")");
-                std::copy(risk.begin(), risk.end(), s.begin() + rowOffsets[a]);
+                           rows[a+1] - rows[a] << ")");
+                std::copy(risk.begin(), risk.end(), s.begin() + rows[a]);
             }
-            Array r = transpose(S)*s;
+            Array r = transpose(dense.inverse)*s;
 
             std::map<const YieldTermStructure*, Array> result;
             for (Size b = 0; b < nodes_.size(); ++b)
                 result[nodes_[b].curve.get()] =
-                    Array(r.begin() + colOffsets[b], r.begin() + colOffsets[b+1]);
+                    Array(r.begin() + cols[b], r.begin() + cols[b+1]);
             return result;
         }
 
@@ -302,6 +287,24 @@ namespace QuantLib {
         void requireComplete() const {
             QL_REQUIRE(!errorOnIncomplete_ || isComplete(),
                        "incomplete curve Jacobian graph");
+        }
+
+        //! whether the curve was added, as a calibrated or derived curve
+        bool isRegistered(detail::CurveId id) const {
+            if (derivedIds_.count(id) != 0)
+                return true;
+            return std::any_of(
+                nodes_.begin(), nodes_.end(),
+                [id](const detail::CurveJacobianNode& node) {
+                    return node.id == id;
+                });
+        }
+
+        template <class Container>
+        bool dependenciesAreRegistered(const Container& dependencies) const {
+            return std::all_of(
+                dependencies.begin(), dependencies.end(),
+                [this](detail::CurveId id) { return isRegistered(id); });
         }
 
         void addDerivedCurve(

@@ -178,7 +178,7 @@ namespace QuantLib {
             }
 
             if (analyticEquations != nullptr)
-                *analyticEquations = analytic;
+                *analyticEquations = std::move(analytic);
             return J;
         }
 
