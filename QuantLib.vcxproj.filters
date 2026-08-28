@@ -7416,7 +7416,8 @@
     </ClCompile>
     <ClCompile Include="ql\experimental\termstructures\crosscurrencyratehelpers.cpp">
       <Filter>experimental\termstructures</Filter>
-    </ClCompile>    <ClCompile Include="ql\experimental\termstructures\quotesensitivitycalculator.cpp">
+    </ClCompile>
+    <ClCompile Include="ql\experimental\termstructures\quotesensitivitycalculator.cpp">
       <Filter>experimental\termstructures</Filter>
     </ClCompile>
     <ClCompile Include="ql\experimental\asian\analytic_cont_geom_av_price_heston.cpp">
