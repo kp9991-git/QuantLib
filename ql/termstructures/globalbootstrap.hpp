@@ -131,12 +131,9 @@ class AdditionalBootstrapVariables {
   helpers, for example, convexity adjustments for futures. See SimpleQuoteVariables
   for a concrete implementation of this interface.
 
-  The analyticJacobian parameter is advisory: the optimization uses the
-  analytical Jacobian of the cost function when it is available and falls
-  back to numerical differentiation otherwise (for example, for traits
-  without sensitivity support, additional penalties or variables, or
-  helpers without sensitivity metadata). If an optimizer is supplied, it
-  must report that it consumes CostFunction::jacobian().
+  We use the analytical Jacobian of the cost function when it is available and falls
+  back to numerical otherwise. If an optimiser is supplied (with analyticJacobian set to true),
+  it must report that it consumes CostFunction::jacobian().
 
   WARNING: This class is known to work with Traits Discount, ZeroYield, Forward,
   i.e. the usual IR curves traits in QL. For new Traits you may want to implement
@@ -190,8 +187,6 @@ template <class Curve> class GlobalBootstrap final : public MultiCurveBootstrapC
     template <class T, class = void>
     static constexpr bool hasGlobalGuess = false;
 
-    // detect the cache itself rather than assuming every jacobian() provider
-    // uses the built-in cache representation
     template <class T, class = void>
     static constexpr bool hasBootstrapJacobianCache = false;
 
@@ -217,10 +212,6 @@ template <class Curve> class GlobalBootstrap final : public MultiCurveBootstrapC
             return b_->evaluateCostFunction();
         }
         void jacobian(Matrix& jac, const Array& x) const override {
-            // analyticJacobian is advisory: when the analytical Jacobian
-            // is unavailable, fall back to numerical differentiation; the
-            // latch keeps a permanently failing path from being retried
-            // and paid for on every iteration
             if (b_->analyticJacobian_ && !b_->analyticUnavailable_ &&
                 b_->analyticCostJacobian(jac, x))
                 return;

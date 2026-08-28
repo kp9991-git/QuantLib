@@ -100,15 +100,7 @@ namespace QuantLib {
             (measured with the term structure's day counter). For yield
             term structures \f$ v(t) \f$ is the discount factor at t.
             An empty vector means sensitivities are unavailable and triggers
-            numerical differentiation. The default implementation extracts
-            the bootstrapped curve from impliedQuoteSensitivitiesByCurve().
-
-            Buckets keyed by other term structures make the own-curve
-            dependency ambiguous: an apparently exogenous handle can wrap
-            the curve being bootstrapped. In that case the default returns
-            no sensitivities and lets the caller differentiate the row
-            numerically. Helpers that can prove independence can override
-            this method with a more precise implementation.
+            numerical differentiation.
         */
         virtual std::vector<std::pair<Time, Real>> impliedQuoteSensitivities() const {
             if (termStructure_ == nullptr)

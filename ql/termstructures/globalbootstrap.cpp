@@ -104,10 +104,6 @@ class MultiCurveBootstrap::StackedCostFunction : public CostFunction {
         return result;
     }
     void jacobian(Matrix& jac, const Array& x) const override {
-        // analyticJacobian is advisory: when the analytical Jacobian is
-        // unavailable, fall back to numerical differentiation; the latch
-        // keeps a permanently failing path from being retried and paid
-        // for on every iteration
         if (b_->analyticJacobian_ && !b_->analyticUnavailable_ &&
             b_->analyticCostJacobian(jac, x, guessSizes_))
             return;
