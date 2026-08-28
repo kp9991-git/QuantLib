@@ -5,11 +5,13 @@ this_includedir=${includedir}/${subdir}
 this_include_HEADERS = \
     all.hpp \
     basisswapratehelpers.hpp \
-    crosscurrencyratehelpers.hpp
+    crosscurrencyratehelpers.hpp \
+    quotesensitivitycalculator.hpp
 
 cpp_files = \
     basisswapratehelpers.cpp \
-    crosscurrencyratehelpers.cpp
+    crosscurrencyratehelpers.cpp \
+    quotesensitivitycalculator.cpp
 
 
 if UNITY_BUILD
