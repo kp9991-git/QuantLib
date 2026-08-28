@@ -44,6 +44,31 @@ struct BasisSwapQuote {
     Spread basis;
 };
 
+void checkAnalyticQuoteSensitivities(
+        const std::vector<ext::shared_ptr<RateHelper>>& helpers,
+        const char* helperType,
+        bool expectComplete = true) {
+    for (Size i = 0; i < helpers.size(); ++i) {
+        QuoteSensitivities sensitivities =
+            helpers[i]->impliedQuoteSensitivitiesByCurve();
+        BOOST_REQUIRE_MESSAGE(
+            sensitivities.available,
+            helperType << " helper " << i
+                       << " did not provide analytical sensitivities");
+        if (expectComplete) {
+            BOOST_CHECK_MESSAGE(
+                sensitivities.incomplete.empty(),
+                helperType << " helper " << i
+                           << " reported incomplete sensitivities");
+        } else {
+            BOOST_CHECK_MESSAGE(
+                sensitivities.incomplete.size() == 1,
+                helperType << " helper " << i
+                           << " did not report exactly one incomplete curve");
+        }
+    }
+}
+
 void testIborIborBootstrap(bool bootstrapBaseCurve, Integer paymentLag = 0) {
     std::vector<BasisSwapQuote> quotes = {
         { 1, Years,  0.0010 },
@@ -86,6 +111,8 @@ void testIborIborBootstrap(bool bootstrapBaseCurve, Integer paymentLag = 0) {
 
     auto bootstrappedCurve = ext::make_shared<PiecewiseYieldCurve<ZeroYield, Linear>>
         (0, calendar, helpers, Actual365Fixed());
+    bootstrappedCurve->discount(helpers.back()->pillarDate());
+    checkAnalyticQuoteSensitivities(helpers, "ibor-ibor basis swap");
 
     Date today = Settings::instance().evaluationDate();
     Date spot = calendar.advance(today, settlementDays, Days);
@@ -248,7 +275,11 @@ void testOvernightIborBootstrap(bool externalDiscountCurve,
 
 void testOvernightOvernightBootstrap(bool externalDiscountCurve,
                                      bool bootstrapBaseCurve,
-                                     bool linkDiscountCurveAfterConstruction = false) {
+                                     bool linkDiscountCurveAfterConstruction = false,
+                                     RateAveraging::Type baseAveragingMethod =
+                                         RateAveraging::Simple,
+                                     RateAveraging::Type otherAveragingMethod =
+                                         RateAveraging::Compound) {
     std::vector<BasisSwapQuote> quotes = {
         { 1, Years, 0.0008 },
         { 2, Years, 0.0010 },
@@ -263,8 +294,6 @@ void testOvernightOvernightBootstrap(bool externalDiscountCurve,
     auto endOfMonth = false;
     auto paymentLag = 2;
     auto paymentFrequency = Quarterly;
-    auto baseAveragingMethod = RateAveraging::Simple;
-    auto otherAveragingMethod = RateAveraging::Compound;
 
     Handle<YieldTermStructure> knownForecastCurve(flatRate(0.01, Actual365Fixed()));
 
@@ -312,6 +341,12 @@ void testOvernightOvernightBootstrap(bool externalDiscountCurve,
         bootstrappedCurve->discount(basisHelpers.back()->pillarDate());
         discountCurve.linkTo(flatRate(0.005, Actual365Fixed()));
     }
+
+    bootstrappedCurve->discount(basisHelpers.back()->pillarDate());
+    bool expectComplete = baseAveragingMethod == RateAveraging::Compound &&
+                          otherAveragingMethod == RateAveraging::Compound;
+    checkAnalyticQuoteSensitivities(
+        helpers, "overnight-overnight basis swap", expectComplete);
 
     if (bootstrapBaseCurve) {
         baseIndex = ext::make_shared<FedFunds>(bootstrappedCurveHandle);
@@ -680,6 +715,14 @@ BOOST_AUTO_TEST_CASE(testOvernightOvernightBootstrapWithLateLinkedDiscountCurve)
     testOvernightOvernightBootstrap(true, false, true);
 }
 
+BOOST_AUTO_TEST_CASE(testOvernightOvernightAnalyticQuoteSensitivities) {
+    BOOST_TEST_MESSAGE(
+        "Testing analytical overnight-overnight basis-swap quote sensitivities...");
+
+    testOvernightOvernightBootstrap(
+        true, false, false, RateAveraging::Compound, RateAveraging::Compound);
+}
+
 BOOST_AUTO_TEST_CASE(testOvernightOvernightDateGenerationRule) {
     BOOST_TEST_MESSAGE(
         "Testing the date-generation rule of overnight-overnight basis-swap helpers...");
@@ -861,6 +904,74 @@ BOOST_AUTO_TEST_CASE(testOvernightIborMarginOnIborLeg) {
             BOOST_ERROR("Failed to price fair " << q.n << "-year(s) swap:"
                         << "\n    calculated: " << NPV);
         }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(testOvernightIborMarginOnIborLegJacobian) {
+    BOOST_TEST_MESSAGE("Testing analytical Jacobian of the overnight-ibor basis-swap "
+                       "helper with the margin quoted on the ibor leg...");
+
+    // The margin leg selects the annuity impliedQuote() divides by and flips
+    // the sign of the fair basis.  The analytical sensitivities must follow,
+    // or a bootstrap driven by them stops at a wrong point.  Mismatched leg
+    // frequencies keep the two annuities apart, so the sign alone cannot
+    // mask a wrong annuity.
+    Natural settlementDays = 2;
+    auto calendar = UnitedStates(UnitedStates::GovernmentBond);
+    Handle<YieldTermStructure> knownForecastCurve(flatRate(0.01, Actual365Fixed()));
+    Handle<YieldTermStructure> discountCurve(flatRate(0.005, Actual365Fixed()));
+
+    for (bool basisOnIborLeg : {false, true}) {
+        auto baseIndex = ext::make_shared<Sofr>(knownForecastCurve);
+        auto otherIndex = ext::make_shared<USDLibor>(6 * Months);
+        std::vector<ext::shared_ptr<SimpleQuote>> quotes;
+        std::vector<ext::shared_ptr<RateHelper>> helpers;
+        for (const auto& [years, basis] : std::vector<std::pair<Integer, Spread>>{
+                 {1, 0.0010}, {2, 0.0012}, {5, 0.0015}, {10, 0.0020}}) {
+            auto q = ext::make_shared<SimpleQuote>(basisOnIborLeg ? -basis : basis);
+            quotes.push_back(q);
+            helpers.push_back(ext::make_shared<OvernightIborBasisSwapRateHelper>(
+                Handle<Quote>(q), years * Years, settlementDays, calendar, Following,
+                false, baseIndex, otherIndex, discountCurve, false, /*paymentLag=*/2,
+                Annual, std::nullopt, DateGeneration::Backward,
+                RateAveraging::Compound, false, basisOnIborLeg));
+        }
+        auto curve = ext::make_shared<PiecewiseYieldCurve<Discount, LogLinear>>(
+            0, calendar, helpers, Actual365Fixed());
+        curve->enableExtrapolation();
+
+        std::vector<bool> analytic;
+        Matrix J = curve->jacobian(&analytic);
+        BOOST_REQUIRE_EQUAL(J.rows(), quotes.size());
+        BOOST_REQUIRE_EQUAL(J.columns(), curve->times().size() - 1);
+        for (Size i = 0; i < analytic.size(); ++i)
+            if (!analytic[i])
+                BOOST_ERROR("row " << i << " is not analytical (basisOnIborLeg = "
+                            << basisOnIborLeg << ")");
+
+        // bootstrap consistency requires J * dNodes/dQuotes = I
+        Size rows = J.rows(), cols = J.columns();
+        Matrix M(cols, rows);
+        for (Size k = 0; k < rows; ++k) {
+            Real q0 = quotes[k]->value(), h = 1.0e-6;
+            quotes[k]->setValue(q0 + h);
+            std::vector<Real> up = curve->data();
+            quotes[k]->setValue(q0 - h);
+            std::vector<Real> dn = curve->data();
+            quotes[k]->setValue(q0);
+            for (Size j = 0; j < cols; ++j)
+                M[j][k] = (up[j + 1] - dn[j + 1]) / (2.0 * h);
+        }
+        Matrix P = J * M;
+        for (Size i = 0; i < rows; ++i)
+            for (Size k = 0; k < rows; ++k) {
+                Real expected = (i == k) ? 1.0 : 0.0;
+                if (std::fabs(P[i][k] - expected) > 1.0e-5)
+                    BOOST_ERROR("product of Jacobian and node/quote sensitivities "
+                                "is not the identity at (" << i << "," << k << "): "
+                                << P[i][k] << " (expected " << expected
+                                << ", basisOnIborLeg = " << basisOnIborLeg << ")");
+            }
     }
 }
 
