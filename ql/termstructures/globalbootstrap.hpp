@@ -78,8 +78,8 @@ class MultiCurveBootstrap : public ext::enable_shared_from_this<MultiCurveBootst
     std::set<const TermStructure*> observerTermStructures() const;
 
   private:
+    template <class ValuesFn>
     class StackedCostFunction;
-    void setCostFunctionArguments(const Array& x, const std::vector<Size>& guessSizes) const;
     bool analyticCostJacobian(Matrix& jac,
                               const Array& x,
                               const std::vector<Size>& guessSizes) const;
