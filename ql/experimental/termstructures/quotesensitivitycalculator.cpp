@@ -102,6 +102,8 @@ namespace QuantLib {
                     // f = (P(v)/P(e)-1)/tau on the index's forecast curve
                     const Handle<YieldTermStructure>& curve =
                         ibor->iborIndex()->forwardingTermStructure();
+                    if (curve.empty())
+                        return {};
                     a.forecastCurve = &**curve;
                     const Date& v = ibor->fixingValueDate();
                     const Date& e = ibor->fixingEndDate();
@@ -134,6 +136,8 @@ namespace QuantLib {
                 // C = C_past * boundary factors * P(v_s)/P(v_e)
                 auto index = ext::dynamic_pointer_cast<OvernightIndex>(overnight->index());
                 const Handle<YieldTermStructure>& curve = index->forwardingTermStructure();
+                if (curve.empty())
+                    return {};
                 const DayCounter& dc = index->dayCounter();
                 Date today = Settings::instance().evaluationDate();
 
