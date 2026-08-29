@@ -91,6 +91,43 @@ namespace QuantLib {
                 return a;
             }
 
+            if (auto stub = ext::dynamic_pointer_cast<StubIborCoupon>(cf)) {
+                if (stub->isInArrears())
+                    return a;
+                a.supported = true;
+                a.ntau = stub->nominal()*stub->accrualPeriod();
+                Real gearing = stub->gearing();
+                a.amount = a.ntau*(gearing*stub->indexFixing() + stub->spread());
+                if (!stub->hasFixed()) {
+                    const Date& fixingDate = stub->fixingDate();
+                    Date today = Settings::instance().evaluationDate();
+                    const auto& components = stub->weightedIndex()->components();
+                    for (const auto& [index, weight] : components) {
+                        bool componentFixed = fixingDate < today ||
+                            (fixingDate == today &&
+                             (Settings::instance().enforcesTodaysHistoricFixings() ||
+                              index->hasHistoricalFixing(fixingDate)));
+                        if (componentFixed)
+                            continue;
+                        const Handle<YieldTermStructure>& curve =
+                            index->forwardingTermStructure();
+                        if (curve.empty())
+                            return {};
+                        Date v = index->valueDate(fixingDate);
+                        Date e = index->maturityDate(v);
+                        Time tau = index->dayCounter().yearFraction(v, e);
+                        DiscountFactor Pv = curve->discount(v);
+                        DiscountFactor Pe = curve->discount(e);
+                        Real k = gearing*a.ntau*weight/tau;
+                        a.amountSensitivities.push_back(
+                            {key(&**curve), v, k/Pe});
+                        a.amountSensitivities.push_back(
+                            {key(&**curve), e, -k*Pv/(Pe*Pe)});
+                    }
+                }
+                return a;
+            }
+
             if (auto ibor = ext::dynamic_pointer_cast<IborCoupon>(cf)) {
                 if (ibor->isInArrears())
                     return a;

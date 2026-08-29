@@ -71,7 +71,7 @@ namespace QuantLib {
             CurvePointSensitivities amountSensitivities;
         };
 
-        /*! Decomposes fixed, Ibor, and
+        /*! Decomposes fixed, Ibor (including weighted-index stubs), and
             compounded overnight coupons. Unsupported cases return
             supported=false. */
         CouponContribution decomposeCoupon(const ext::shared_ptr<CashFlow>& cf,
