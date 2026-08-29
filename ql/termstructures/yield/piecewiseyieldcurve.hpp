@@ -63,7 +63,8 @@ namespace QuantLib {
     class PiecewiseYieldCurve
         : public Traits::template curve<Interpolator>::type,
           public LazyObject,
-          public MultiCurveBootstrapProvider {
+          public MultiCurveBootstrapProvider,
+          public CurveJacobianNodeProvider {
       private:
         typedef typename Traits::template curve<Interpolator>::type base_curve;
         typedef PiecewiseYieldCurve<Traits,Interpolator,Bootstrap> this_curve;
@@ -186,6 +187,12 @@ namespace QuantLib {
         //@}
       private:
         // methods
+        detail::CurveJacobianNode makeJacobianNode(const ext::shared_ptr<YieldTermStructure>& curve) const override {
+            auto self = ext::dynamic_pointer_cast<this_curve>(curve);
+            QL_REQUIRE(self.get() == this,
+                       "Jacobian node requested with a different curve");
+            return detail::BootstrapJacobianAccess<this_curve>::makeNode(self);
+        }
         detail::BootstrapJacobian calculateJacobian() const;
         DiscountFactor discountImpl(Time) const override;
         // data members

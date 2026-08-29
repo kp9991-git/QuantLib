@@ -26,6 +26,7 @@
 #include <ql/termstructures/yield/flatforward.hpp>
 #include <ql/termstructures/yield/piecewiseyieldcurve.hpp>
 #include <ql/termstructures/yield/overnightindexfutureratehelper.hpp>
+#include <ql/termstructures/yield/zerospreadedtermstructure.hpp>
 #include <ql/time/daycounters/actual360.hpp>
 #include <iomanip>
 
@@ -272,6 +273,33 @@ BOOST_AUTO_TEST_CASE(testAnalyticQuoteSensitivities) {
             helper->impliedQuoteSensitivitiesByCurve();
         BOOST_REQUIRE(sensitivities.available);
         BOOST_CHECK(sensitivities.incomplete.empty());
+
+        // check the reported sensitivities against a finite difference
+        // under a parallel tilt P(t) -> P(t) exp(-eps t) of the curve:
+        // the predicted derivative is sum_d dQ/dP(d) * (-t_d) * P(d)
+        Real predicted = 0.0;
+        auto bucket = sensitivities.sensitivities.find(curve.get());
+        BOOST_REQUIRE(bucket != sensitivities.sensitivities.end());
+        for (const auto& [date, dQdP] : bucket->second)
+            predicted += dQdP * (-curve->timeFromReference(date)) *
+                         curve->discount(date, true);
+
+        auto spread = ext::make_shared<SimpleQuote>(0.0);
+        auto tilted = ext::make_shared<ZeroSpreadedTermStructure>(
+            Handle<YieldTermStructure>(curve), Handle<Quote>(spread));
+        tilted->enableExtrapolation();
+        helper->setTermStructure(tilted.get());
+        Real h = 1.0e-7;
+        spread->setValue(+h);
+        Real up = helper->impliedQuote();
+        spread->setValue(-h);
+        Real down = helper->impliedQuote();
+        helper->setTermStructure(curve.get());
+        Real numerical = (up - down) / (2.0 * h);
+        Real tolerance = 1.0e-5 * std::max(1.0, std::fabs(numerical));
+        BOOST_CHECK_MESSAGE(std::fabs(predicted - numerical) < tolerance,
+                            "predicted sensitivity " << predicted <<
+                            " does not match the bumped " << numerical);
     }
 }
 

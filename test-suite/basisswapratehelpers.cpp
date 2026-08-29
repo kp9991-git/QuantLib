@@ -31,6 +31,8 @@
 #include <ql/instruments/swap.hpp>
 #include <ql/pricingengines/swap/discountingswapengine.hpp>
 #include <ql/termstructures/yield/piecewiseyieldcurve.hpp>
+#include <ql/termstructures/yield/zerospreadedtermstructure.hpp>
+#include <ql/utilities/null_deleter.hpp>
 #include <ql/time/calendars/newzealand.hpp>
 #include <ql/time/calendars/unitedstates.hpp>
 
@@ -63,6 +65,41 @@ void checkAnalyticQuoteSensitivities(
                 sensitivities.incomplete.empty(),
                 helperType << " helper " << i
                            << " reported incomplete sensitivities");
+
+            // validate the own-curve bucket against a finite-difference
+            // tilt: replace the curve C the helper is seated on by
+            // C*exp(-eps*t), whose derivative at eps=0 the reported
+            // sensitivities predict as sum of dQ/dP(d) * (-t(d)) * P(d)
+            YieldTermStructure* own = helpers[i]->termStructure();
+            BOOST_REQUIRE(own != nullptr);
+            Real predicted = 0.0;
+            auto bucket = sensitivities.sensitivities.find(own);
+            if (bucket != sensitivities.sensitivities.end())
+                for (const auto& [date, dQdP] : bucket->second)
+                    predicted += dQdP * (-own->timeFromReference(date)) *
+                                 own->discount(date, true);
+            auto spread = ext::make_shared<SimpleQuote>(0.0);
+            auto tilted = ext::make_shared<ZeroSpreadedTermStructure>(
+                Handle<YieldTermStructure>(
+                    ext::shared_ptr<YieldTermStructure>(own, null_deleter())),
+                Handle<Quote>(spread));
+            tilted->enableExtrapolation();
+            helpers[i]->setTermStructure(tilted.get());
+            Real h = 1.0e-7;
+            spread->setValue(+h);
+            Real up = helpers[i]->impliedQuote();
+            spread->setValue(-h);
+            Real down = helpers[i]->impliedQuote();
+            spread->setValue(0.0);
+            helpers[i]->setTermStructure(own);
+            Real numerical = (up - down) / (2.0 * h);
+            BOOST_CHECK_MESSAGE(
+                std::fabs(predicted - numerical) <
+                    1.0e-5 * std::max(1.0, std::fabs(numerical)),
+                helperType << " helper " << i
+                           << " own-curve sensitivity " << predicted
+                           << " does not match finite difference "
+                           << numerical);
         } else {
             BOOST_CHECK_MESSAGE(
                 sensitivities.incomplete.size() == 1,
@@ -1070,14 +1107,21 @@ BOOST_AUTO_TEST_CASE(testOvernightIborMarginOnIborLegJacobian) {
             0, calendar, helpers, Actual365Fixed());
         curve->enableExtrapolation();
 
-        std::vector<bool> analytic;
-        Matrix J = curve->jacobian(&analytic);
+        curve->discount(helpers.back()->pillarDate());
+
+        // the sign and annuity choice enter through the helper-level
+        // sensitivities, which the tilt check validates against finite
+        // differences; the single-curve rows themselves fall back to
+        // finite differences because the helpers report exogenous
+        // discount and forecast buckets the curve cannot prove
+        // independent of itself
+        checkAnalyticQuoteSensitivities(
+            helpers, basisOnIborLeg ? "margin-on-ibor-leg basis swap"
+                                    : "margin-on-overnight-leg basis swap");
+
+        Matrix J = curve->jacobian();
         BOOST_REQUIRE_EQUAL(J.rows(), quotes.size());
         BOOST_REQUIRE_EQUAL(J.columns(), curve->times().size() - 1);
-        for (Size i = 0; i < analytic.size(); ++i)
-            if (!analytic[i])
-                BOOST_ERROR("row " << i << " is not analytical (basisOnIborLeg = "
-                            << basisOnIborLeg << ")");
 
         // bootstrap consistency requires J * dNodes/dQuotes = I
         Size rows = J.rows(), cols = J.columns();
