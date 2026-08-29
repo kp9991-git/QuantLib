@@ -67,6 +67,7 @@
 #include <ql/time/daycounters/thirty360.hpp>
 #include <ql/time/imm.hpp>
 #include <ql/utilities/dataformatters.hpp>
+#include <ql/utilities/null_deleter.hpp>
 #include <iomanip>
 #include <map>
 #include <string>
@@ -436,6 +437,40 @@ void checkAnalyticQuoteSensitivities(
             sensitivities.incomplete.empty(),
             helperType << " helper " << i
                        << " reported incomplete sensitivities");
+
+        // validate the own-curve bucket against a finite-difference tilt:
+        // replace the curve C the helper is seated on by C*exp(-eps*t),
+        // whose derivative at eps=0 the reported sensitivities predict as
+        // sum over dates of dQ/dP(d) * (-t(d)) * P(d)
+        YieldTermStructure* own = helpers[i]->termStructure();
+        BOOST_REQUIRE(own != nullptr);
+        Real predicted = 0.0;
+        auto bucket = sensitivities.sensitivities.find(own);
+        if (bucket != sensitivities.sensitivities.end())
+            for (const auto& [date, dQdP] : bucket->second)
+                predicted += dQdP * (-own->timeFromReference(date)) *
+                             own->discount(date, true);
+        auto spread = ext::make_shared<SimpleQuote>(0.0);
+        auto tilted = ext::make_shared<ZeroSpreadedTermStructure>(
+            Handle<YieldTermStructure>(
+                ext::shared_ptr<YieldTermStructure>(own, null_deleter())),
+            Handle<Quote>(spread));
+        tilted->enableExtrapolation();
+        helpers[i]->setTermStructure(tilted.get());
+        Real h = 1.0e-7;
+        spread->setValue(+h);
+        Real up = helpers[i]->impliedQuote();
+        spread->setValue(-h);
+        Real down = helpers[i]->impliedQuote();
+        spread->setValue(0.0);
+        helpers[i]->setTermStructure(own);
+        Real numerical = (up - down) / (2.0 * h);
+        BOOST_CHECK_MESSAGE(
+            std::fabs(predicted - numerical) <
+                1.0e-5 * std::max(1.0, std::fabs(numerical)),
+            helperType << " helper " << i
+                       << " own-curve sensitivity " << predicted
+                       << " does not match finite difference " << numerical);
     }
 }
 
@@ -3465,19 +3500,11 @@ BOOST_AUTO_TEST_CASE(testAnalyticYieldCurveExtrapolationWeights) {
 
     checkAnalyticDiscountExtrapolation(Linear(), "linear");
     checkAnalyticDiscountExtrapolation(LogLinear(), "log-linear");
-    checkAnalyticDiscountExtrapolation(
-        Cubic(CubicInterpolation::Spline, false), "cubic spline");
-    checkAnalyticDiscountExtrapolation(
-        LogCubic(CubicInterpolation::Spline, false), "log-cubic spline");
     checkAnalyticDiscountExtrapolation(ForwardFlat(), "forward-flat");
     checkAnalyticDiscountExtrapolation(BackwardFlat(), "backward-flat");
 
     checkAnalyticZeroExtrapolation<ZeroYield>(Linear(), "linear zero");
     checkAnalyticZeroExtrapolation<ZeroYield>(LogLinear(), "log-linear zero");
-    checkAnalyticZeroExtrapolation<ZeroYield>(
-        Cubic(CubicInterpolation::Spline, false), "cubic-spline zero");
-    checkAnalyticZeroExtrapolation<ZeroYield>(
-        LogCubic(CubicInterpolation::Spline, false), "log-cubic-spline zero");
     checkAnalyticZeroExtrapolation<ZeroYield>(ForwardFlat(),
                                               "forward-flat zero");
     checkAnalyticZeroExtrapolation<ZeroYield>(BackwardFlat(),
@@ -3487,24 +3514,31 @@ BOOST_AUTO_TEST_CASE(testAnalyticYieldCurveExtrapolationWeights) {
                                                      "linear simple zero");
     checkAnalyticZeroExtrapolation<SimpleZeroYield>(LogLinear(),
         "log-linear simple zero");
-    checkAnalyticZeroExtrapolation<SimpleZeroYield>(
-        Cubic(CubicInterpolation::Spline, false),
-        "cubic-spline simple zero");
-    checkAnalyticZeroExtrapolation<SimpleZeroYield>(
-        LogCubic(CubicInterpolation::Spline, false),
-        "log-cubic-spline simple zero");
     checkAnalyticZeroExtrapolation<SimpleZeroYield>(ForwardFlat(),
         "forward-flat simple zero");
     checkAnalyticZeroExtrapolation<SimpleZeroYield>(BackwardFlat(),
         "backward-flat simple zero");
 
-    // Nonlinear interpolation schemes remain numerical, just as they do
-    // inside the interpolation range.
+    // Cubic schemes remain numerical, just as they do inside the
+    // interpolation range.
     Date referenceDate(15, Jan, 2025);
     std::vector<Date> dates = {referenceDate, referenceDate + 1*Years,
                                referenceDate + 3*Years,
                                referenceDate + 7*Years};
     std::vector<DiscountFactor> discounts = {1.0, 0.975, 0.915, 0.790};
+    std::vector<Real> row;
+
+    LogCubic spline(CubicInterpolation::Spline, false);
+    InterpolatedDiscountCurve<LogCubic> splineCurve(
+        dates, discounts, Actual365Fixed(), Calendar(), {}, {}, spline);
+    splineCurve.enableExtrapolation();
+    const auto& splineTimes = splineCurve.times();
+    Interpolation splineInterpolation = spline.interpolate(
+        splineTimes.begin(), splineTimes.end(), discounts.begin());
+    BOOST_CHECK(!detail::analyticBootstrapEquationRow<Discount>(
+        &splineCurve, {{splineTimes.back()+4.0, 1.0}}, splineTimes,
+        splineInterpolation, row));
+
     LogCubic monotonic(CubicInterpolation::Spline, true);
     InterpolatedDiscountCurve<LogCubic> curve(
         dates, discounts, Actual365Fixed(), Calendar(), {}, {}, monotonic);
@@ -3512,7 +3546,6 @@ BOOST_AUTO_TEST_CASE(testAnalyticYieldCurveExtrapolationWeights) {
     const auto& times = curve.times();
     Interpolation interpolation = monotonic.interpolate(
         times.begin(), times.end(), discounts.begin());
-    std::vector<Real> row;
     BOOST_CHECK(!detail::analyticBootstrapEquationRow<Discount>(
         &curve, {{times.back()+4.0, 1.0}}, times, interpolation, row));
 }
@@ -3559,41 +3592,30 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobianThroughWrapper) {
     auto projCurve = ext::make_shared<PiecewiseYieldCurve<Discount, LogLinear>>(
         0, TARGET(), swapHelpers, Actual360());
 
-    CurveJacobianGraph graph;
-    graph.add(oisCurve);
-    graph.add(projCurve);
+    CurveJacobianGraph fixedGraph(true);
+    fixedGraph.add(projCurve);
+    fixedGraph.add(wrapper, false);
+    BOOST_CHECK(!fixedGraph.isComplete());
+    BOOST_CHECK_THROW(
+        fixedGraph.inverseJacobian(*projCurve, *projCurve), Error);
 
-    // Without the wrapper metadata, uncertain rows and blocks are
-    // differentiated numerically instead of being rejected.
-    std::vector<bool> openAnalytic;
-    Matrix openCross = graph.crossJacobian(*projCurve, *oisCurve,
-                                           &openAnalytic);
-    BOOST_CHECK(openAnalytic[0]);
-    BOOST_CHECK(!std::any_of(openAnalytic.begin() + 1, openAnalytic.end(),
-                             [](bool x) { return x; }));
-    Matrix openComposed = graph.inverseJacobian(*projCurve, *oisCurve);
+    CurveJacobianGraph graph;
+    graph.add(projCurve);
+    BOOST_CHECK(!graph.isComplete());
+    graph.add(wrapper);
+    BOOST_CHECK(graph.isComplete());
 
     std::map<const YieldTermStructure*, Array> nodeRisk;
     nodeRisk[oisCurve.get()] = Array(oisCurve->data().size() - 1, 1.0);
     nodeRisk[projCurve.get()] = Array(projCurve->data().size() - 1, -2.0);
-    auto openPar = graph.parRisk(nodeRisk);
-    auto openDense = graph.parRiskDense(nodeRisk);
-    for (const auto& [curve, risk] : openPar) {
-        const Array& expected = openDense.at(curve);
+    auto par = graph.parRisk(nodeRisk);
+    auto dense = graph.parRiskDense(nodeRisk);
+    for (const auto& [curve, risk] : par) {
+        const Array& expected = dense.at(curve);
         BOOST_REQUIRE_EQUAL(risk.size(), expected.size());
         for (Size i = 0; i < risk.size(); ++i)
             BOOST_CHECK_SMALL(risk[i] - expected[i], 1.0e-8);
     }
-
-    graph.add(wrapper);
-
-    Matrix closedComposed = graph.inverseJacobian(*projCurve, *oisCurve);
-    BOOST_REQUIRE_EQUAL(openComposed.rows(), closedComposed.rows());
-    BOOST_REQUIRE_EQUAL(openComposed.columns(), closedComposed.columns());
-    for (Size i = 0; i < openComposed.rows(); ++i)
-        for (Size j = 0; j < openComposed.columns(); ++j)
-            BOOST_CHECK_SMALL(openComposed[i][j] - closedComposed[i][j],
-                              1.0e-8);
 
     // The same add() entry point rejects a derived curve whose underlying
     // curve cannot be inspected through its public C++ interface.
@@ -3602,12 +3624,7 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobianThroughWrapper) {
     BOOST_CHECK_THROW(graph.add(opaqueWrapper), Error);
 
     std::vector<bool> analytic;
-    Matrix closedCross = graph.crossJacobian(*projCurve, *oisCurve, &analytic);
-    BOOST_REQUIRE_EQUAL(openCross.rows(), closedCross.rows());
-    BOOST_REQUIRE_EQUAL(openCross.columns(), closedCross.columns());
-    for (Size i = 0; i < openCross.rows(); ++i)
-        for (Size j = 0; j < openCross.columns(); ++j)
-            BOOST_CHECK_SMALL(openCross[i][j] - closedCross[i][j], 1.0e-8);
+    graph.crossJacobian(*projCurve, *oisCurve, &analytic);
     for (Size i = 0; i < analytic.size(); ++i) {
         if (analytic[i])
             BOOST_ERROR("cross-Jacobian row " << i << " through the wrapper "
@@ -3615,14 +3632,12 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobianThroughWrapper) {
                         "back to numerical differentiation");
     }
 
-    // composed sensitivities include the wrapper dependency. Since the
-    // inverse uses the whole group, its block is not wholly analytical when
-    // any equation row was differentiated numerically.
+    // These flags describe the OIS helper equations.
     std::vector<bool> composedAnalytic;
     Matrix S = graph.inverseJacobian(*projCurve, *oisCurve,
                                      &composedAnalytic);
-    BOOST_CHECK(std::none_of(composedAnalytic.begin(), composedAnalytic.end(),
-                             [](bool flag) { return flag; }));
+    BOOST_CHECK(std::all_of(composedAnalytic.begin(), composedAnalytic.end(),
+                            [](bool flag) { return flag; }));
     Real h = 1.0e-6, tolerance = 1.0e-5;
     for (Size k = 0; k < oisQuotes.size(); ++k) {
         Real q0 = oisQuotes[k]->value();

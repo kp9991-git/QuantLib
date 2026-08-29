@@ -478,6 +478,16 @@ namespace QuantLib {
 
     }
 
+    //! factory for a bootstrapped curve's Jacobian node
+    /*! Bootstrapped curves implement this to add base curves for spread curves automatically
+    */
+    class CurveJacobianNodeProvider {
+      public:
+        virtual ~CurveJacobianNodeProvider() = default;
+        virtual detail::CurveJacobianNode makeJacobianNode(
+            const ext::shared_ptr<YieldTermStructure>& curve) const = 0;
+    };
+
 }
 
 #endif

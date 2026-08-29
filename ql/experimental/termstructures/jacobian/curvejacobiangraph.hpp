@@ -73,25 +73,25 @@ namespace QuantLib {
 
         /*! Register a calibrated curve or a supported derived curve.
             Calibrated curves contribute blocks. Derived curves only record
-            dependencies.
+            dependencies. By default, adding a derived curve also adds its
+            underlying calibrated curve.
         */
         template <class Curve>
-        void add(const ext::shared_ptr<Curve>& curve) {
+        void add(const ext::shared_ptr<Curve>& curve, bool addUnderlying = true) {
             QL_REQUIRE(curve, "null curve");
-            if constexpr (detail::supportsCurveJacobianNode<Curve>) {
-                detail::CurveJacobianNode n =
-                    detail::BootstrapJacobianAccess<Curve>::makeNode(curve);
-                for (auto& existing : nodes_) {
-                    if (existing.id == n.id) {
-                        existing = std::move(n);
-                        return;
-                    }
-                }
-                nodes_.push_back(std::move(n));
-            } else if constexpr (detail::hasBaseCurveHandle<Curve>) {
+            ext::shared_ptr<YieldTermStructure> underlying;
+            if constexpr (detail::hasBaseCurveHandle<Curve>) {
                 QL_REQUIRE(!curve->baseCurve().empty(),
                            "derived curve has an empty base-curve handle");
-                addDerivedCurve(curve, curve->baseCurve().currentLink());
+                underlying = curve->baseCurve().currentLink();
+                if (addUnderlying)
+                    addUnderlyingCurve(underlying);
+            }
+
+            if constexpr (detail::supportsCurveJacobianNode<Curve>) {
+                addNode(detail::BootstrapJacobianAccess<Curve>::makeNode(curve));
+            } else if constexpr (detail::hasBaseCurveHandle<Curve>) {
+                addDerivedCurve(curve, underlying);
             } else {
                 QL_FAIL("curve type is not supported by CurveJacobianGraph::add; "
                         "supported curves must provide bootstrap Jacobians or "
@@ -284,6 +284,29 @@ namespace QuantLib {
         }
 
       private:
+        void addNode(detail::CurveJacobianNode node) {
+            for (auto& existing : nodes_) {
+                if (existing.id == node.id) {
+                    existing = std::move(node);
+                    return;
+                }
+            }
+            nodes_.push_back(std::move(node));
+        }
+
+        void addUnderlyingCurve(const ext::shared_ptr<YieldTermStructure>& curve) {
+            QL_REQUIRE(curve, "null underlying curve");
+            const auto* id = static_cast<const TermStructure*>(curve.get());
+            if (isRegistered(id))
+                return;
+
+            auto provider = ext::dynamic_pointer_cast<CurveJacobianNodeProvider>(curve);
+            QL_REQUIRE(provider,
+                       "underlying curve does not expose a Jacobian adapter; "
+                       "add it explicitly or pass addUnderlying = false");
+            addNode(provider->makeJacobianNode(curve));
+        }
+
         void requireComplete() const {
             QL_REQUIRE(!errorOnIncomplete_ || isComplete(),
                        "incomplete curve Jacobian graph");
