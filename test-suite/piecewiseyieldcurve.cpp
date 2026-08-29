@@ -84,6 +84,9 @@ BOOST_FIXTURE_TEST_SUITE(QuantLibTests, TopLevelFixture)
 
 BOOST_AUTO_TEST_SUITE(PiecewiseYieldCurveTests)
 
+// seems that cmsspread.cpp has using namespace pointing to boost detail, so just set detail to QuantLib
+namespace detail = QuantLib::detail;
+
 struct Datum {
     Integer n;
     TimeUnit units;
