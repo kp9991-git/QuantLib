@@ -425,7 +425,7 @@ namespace QuantLib {
                 for (const auto& [j, w] : slopeWeights) {
                     auto found = std::find_if(
                         weights.begin(), weights.end(),
-                        [=](const auto& entry) { return entry.first == j; });
+                        [j = j](const auto& entry) { return entry.first == j; });
                     if (found == weights.end())
                         weights.emplace_back(j, w);
                     else
