@@ -174,7 +174,7 @@ namespace QuantLib {
                 Real coefficient = d*dt*w/dMax;
                 auto found = std::find_if(
                     result.begin(), result.end(),
-                    [=](const auto& entry) { return entry.first == j; });
+                    [j = j](const auto& entry) { return entry.first == j; });
                 if (found == result.end())
                     result.emplace_back(j, coefficient);
                 else
@@ -297,7 +297,7 @@ namespace QuantLib {
             for (const auto& [j, w] : slopeWeights) {
                 auto found = std::find_if(
                     valueWeights.begin(), valueWeights.end(),
-                    [=](const auto& entry) { return entry.first == j; });
+                    [j = j](const auto& entry) { return entry.first == j; });
                 if (found == valueWeights.end())
                     valueWeights.emplace_back(j, slopeScale*w);
                 else
@@ -525,7 +525,7 @@ namespace QuantLib {
             for (const auto& [j, w] : slopeWeights) {
                 auto found = std::find_if(
                     valueWeights.begin(), valueWeights.end(),
-                    [=](const auto& entry) { return entry.first == j; });
+                    [j = j](const auto& entry) { return entry.first == j; });
                 if (found == valueWeights.end())
                     valueWeights.emplace_back(j, slopeScale*w);
                 else
