@@ -190,11 +190,10 @@ namespace QuantLib {
         */
         Matrix jacobian(std::vector<bool>* analyticEquations = nullptr) const {
             calculate();
-            const detail::BootstrapJacobian& result =
-                jacobianCache_.getOrCompute([this] { return calculateJacobian(); });
+            detail::BootstrapJacobian result = calculateJacobian();
             if (analyticEquations != nullptr)
                 *analyticEquations = result.analyticEquations;
-            return result.matrix;
+            return std::move(result.matrix);
         }
         //! Jacobian of curve nodes with respect to helper quotes
         Matrix inverseJacobian(
@@ -228,7 +227,6 @@ namespace QuantLib {
         friend class Bootstrap<this_curve>;
         template <class> friend struct detail::BootstrapJacobianAccess;
         Bootstrap<this_curve> bootstrap_;
-        detail::BootstrapJacobianCache jacobianCache_;
     };
 
 
@@ -278,7 +276,6 @@ namespace QuantLib {
 
     template <class C, class I, template <class> class B>
     inline void PiecewiseDefaultCurve<C,I,B>::update() {
-        jacobianCache_.invalidate();
         // it dispatches notifications only if (!calculated_ && !frozen_)
         LazyObject::update();
 

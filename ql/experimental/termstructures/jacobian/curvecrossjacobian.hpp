@@ -67,7 +67,7 @@ namespace QuantLib {
                 std::vector<Real>& row) const = 0;
             //! value of free node j (1-based over the stored data)
             virtual Real nodeValue(Size j) const = 0;
-            //! writes free node j and invalidates any cached Jacobian
+            //! writes free node j
             virtual void setNodeValue(Size j, Real v) const = 0;
         };
 
@@ -185,7 +185,6 @@ namespace QuantLib {
 
                 void setNodeValue(Size j, Real v) const override {
                     // preserve interpolation iterators
-                    curve_->jacobianCache_.invalidate();
                     Traits::updateGuess(curve_->data_, v, j);
                     curve_->interpolation_.update();
                 }

@@ -207,7 +207,6 @@ namespace QuantLib {
         // access needed for cross-curve Jacobians
         template <class> friend struct detail::BootstrapJacobianAccess;
         Bootstrap<this_curve> bootstrap_;
-        detail::BootstrapJacobianCache jacobianCache_;
     };
 
 
@@ -256,11 +255,10 @@ namespace QuantLib {
     Matrix PiecewiseYieldCurve<Traits, Interpolator, Bootstrap>::jacobian(
                                        std::vector<bool>* analyticEquations) const {
         calculate();
-        const detail::BootstrapJacobian& result =
-            jacobianCache_.getOrCompute([this] { return calculateJacobian(); });
+        detail::BootstrapJacobian result = calculateJacobian();
         if (analyticEquations != nullptr)
             *analyticEquations = result.analyticEquations;
-        return result.matrix;
+        return std::move(result.matrix);
     }
 
     template <class Traits, class Interpolator, template <class> class Bootstrap>
@@ -293,9 +291,6 @@ namespace QuantLib {
 
     template <class C, class I, template <class> class B>
     inline void PiecewiseYieldCurve<C,I,B>::update() {
-
-        jacobianCache_.invalidate();
-
         // it dispatches notifications only if (!calculated_ && !frozen_)
         LazyObject::update();
 

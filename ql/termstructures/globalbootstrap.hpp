@@ -187,9 +187,6 @@ template <class Curve> class GlobalBootstrap final : public MultiCurveBootstrapC
     template <class T, class = void>
     static constexpr bool hasGlobalGuess = false;
 
-    template <class T, class = void>
-    static constexpr bool hasBootstrapJacobianCache = false;
-
     void initialize() const;
     void
     setParentBootstrapper(const ext::shared_ptr<MultiCurveBootstrap>& b) const override;
@@ -255,12 +252,6 @@ template <class T>
 constexpr bool GlobalBootstrap<Curve>::hasGlobalGuess<
     T,
     std::void_t<decltype(T::globalGuess(std::declval<const Curve*>(), true))>> = true;
-
-template <class Curve>
-template <class T>
-constexpr bool GlobalBootstrap<Curve>::hasBootstrapJacobianCache<
-    T,
-    std::void_t<decltype(std::declval<const T&>().jacobianCache_.invalidate())>> = true;
 
 template <class Curve>
 GlobalBootstrap<Curve>::GlobalBootstrap(Real accuracy,
@@ -597,9 +588,6 @@ void GlobalBootstrap<Curve>::setCostFunctionArgument(const Array& x) const {
         Traits::updateGuess(ts_->data_, value, i + 1);
     }
     ts_->interpolation_.update();
-    // the curve nodes changed behind the curve's back
-    if constexpr (hasBootstrapJacobianCache<Curve>)
-        ts_->jacobianCache_.invalidate();
     if (additionalVariables_) {
         additionalVariables_->update(Array(x.begin() + ts_->times_.size() - 1, x.end()));
     }
