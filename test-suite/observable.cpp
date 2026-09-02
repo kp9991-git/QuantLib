@@ -186,6 +186,36 @@ BOOST_AUTO_TEST_CASE(testObservableSettings) {
 }
 
 
+BOOST_AUTO_TEST_CASE(testDuplicateRegistration) {
+    BOOST_TEST_MESSAGE("Testing duplicate observer registration...");
+
+    const ext::shared_ptr<Observable> observable = ext::make_shared<Observable>();
+    UpdateCounter firstObserver;
+    UpdateCounter secondObserver;
+
+    const auto firstRegistration = firstObserver.registerWith(observable);
+    const auto duplicateRegistration = firstObserver.registerWith(observable);
+    secondObserver.registerWith(observable);
+
+    BOOST_CHECK(firstRegistration.second);
+    BOOST_CHECK(!duplicateRegistration.second);
+
+    observable->notifyObservers();
+    BOOST_CHECK_EQUAL(firstObserver.counter(), 1);
+    BOOST_CHECK_EQUAL(secondObserver.counter(), 1);
+
+    BOOST_CHECK_EQUAL(firstObserver.unregisterWith(observable), 1);
+    observable->notifyObservers();
+    BOOST_CHECK_EQUAL(firstObserver.counter(), 1);
+    BOOST_CHECK_EQUAL(secondObserver.counter(), 2);
+
+    BOOST_CHECK(firstObserver.registerWith(observable).second);
+    observable->notifyObservers();
+    BOOST_CHECK_EQUAL(firstObserver.counter(), 2);
+    BOOST_CHECK_EQUAL(secondObserver.counter(), 3);
+}
+
+
 #ifdef QL_ENABLE_THREAD_SAFE_OBSERVER_PATTERN
 
 BOOST_AUTO_TEST_CASE(testAsyncGarbagCollector) {
