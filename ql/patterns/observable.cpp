@@ -3,6 +3,7 @@
 /*
 Copyright (C) 2013 Chris Higgs
 Copyright (C) 2015 Klaus Spanderen
+Copyright (C) 2026 Kyrylo Protsenko
 
 This file is part of QuantLib, a free-software/open-source library
 for financial quantitative analysts and developers - http://quantlib.org/
