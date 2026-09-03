@@ -537,7 +537,7 @@ BOOST_AUTO_TEST_CASE(testInverseCumulativeStudent) {
             Real upper = inv(1.0 - p);
             Real error = std::fabs(lower + upper);
             Real tolerance = 1.0e-8 *
-                std::max({1.0, std::fabs(lower), std::fabs(upper)});
+                std::max<Real>({1.0, std::fabs(lower), std::fabs(upper)});
             if (error > tolerance)
                 BOOST_ERROR("Inverse cumulative Student t distribution "
                             "symmetry failure:"

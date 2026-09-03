@@ -123,10 +123,10 @@ BOOST_AUTO_TEST_CASE(testFractionalAdamsScheme) {
         return sum;
     }();
 
-    const std::vector<std::complex<Real>> wc{
+    const std::vector<std::complex<Real>> wc =
         FractionalAdams<std::complex<Real>>(alpha).solve(
             [lambda](Real, const std::complex<Real>& x) { return lambda * x; },
-            std::complex<Real>(1.0), 1.0, 400)};
+            std::complex<Real>(1.0), 1.0, 400);
 
     if (std::abs(wc.back() - mittagLefflerComplexRef) > mlTol)
         BOOST_ERROR("failed to reproduce complex Mittag-Leffler solution of "
@@ -749,7 +749,7 @@ BOOST_AUTO_TEST_CASE(testPadeRiccatiAsymptotics) {
             hurst)};
         const auto engine{ext::make_shared<AnalyticRoughHestonEngine>(
             model, 128, 256,
-            AnalyticRoughHestonEngine::Approximation::Pade)};
+            AnalyticRoughHestonEngine::Pade)};
 
         for (const Real u : {0.5, 2.0, 5.0}) {
             const std::complex<Real> z(u, -0.5);
@@ -820,7 +820,7 @@ BOOST_AUTO_TEST_CASE(testPadeTrivialContour) {
             hurst)};
         const auto engine{ext::make_shared<AnalyticRoughHestonEngine>(
             model, 128, 256,
-            AnalyticRoughHestonEngine::Approximation::Pade)};
+            AnalyticRoughHestonEngine::Pade)};
 
         for (const std::complex<Real> z :
              {std::complex<Real>(0.0, 0.0), std::complex<Real>(0.0, -1.0)}) {
@@ -868,10 +868,10 @@ BOOST_AUTO_TEST_CASE(testPadeAgainstAdamsRiccati) {
 
             const auto adams{ext::make_shared<AnalyticRoughHestonEngine>(
                 model, 128, 1024,
-                AnalyticRoughHestonEngine::Approximation::AdamsPredictorCorrector)};
+                AnalyticRoughHestonEngine::AdamsPredictorCorrector)};
             const auto pade{ext::make_shared<AnalyticRoughHestonEngine>(
                 model, 128, 256,
-                AnalyticRoughHestonEngine::Approximation::Pade)};
+                AnalyticRoughHestonEngine::Pade)};
 
             Real maxError{0.0};
             // pricing contour z = u - i/2 over the calibration-relevant band
@@ -922,10 +922,10 @@ BOOST_AUTO_TEST_CASE(testPadeAgainstAdamsPricing) {
 
         const auto adams{ext::make_shared<AnalyticRoughHestonEngine>(
             model, 128, 512,
-            AnalyticRoughHestonEngine::Approximation::AdamsPredictorCorrector)};
+            AnalyticRoughHestonEngine::AdamsPredictorCorrector)};
         const auto pade{ext::make_shared<AnalyticRoughHestonEngine>(
             model, 128, 256,
-            AnalyticRoughHestonEngine::Approximation::Pade)};
+            AnalyticRoughHestonEngine::Pade)};
 
         for (const auto& optionType : {Option::Call, Option::Put}) {
             for (const Real strike : {80.0, 90.0, 100.0, 110.0, 120.0}) {
@@ -980,7 +980,7 @@ BOOST_AUTO_TEST_CASE(testPadeHestonLimit) {
         ext::make_shared<HestonProcess>(rTS, qTS, s0, v0, kappa, theta, sigma, rho),
         0.5)};
     const auto padeEngine{ext::make_shared<AnalyticRoughHestonEngine>(
-        roughModel, 128, 256, AnalyticRoughHestonEngine::Approximation::Pade)};
+        roughModel, 128, 256, AnalyticRoughHestonEngine::Pade)};
 
     const auto hestonModel{ext::make_shared<HestonModel>(
         ext::make_shared<HestonProcess>(
@@ -1046,7 +1046,7 @@ BOOST_AUTO_TEST_CASE(testPadeMonotonicityAndBounds) {
         ext::make_shared<HestonProcess>(rTS, qTS, s0, 0.04, 0.3, 0.04, 0.4, -0.7),
         0.1)};
     const auto engine{ext::make_shared<AnalyticRoughHestonEngine>(
-        model, 128, 256, AnalyticRoughHestonEngine::Approximation::Pade)};
+        model, 128, 256, AnalyticRoughHestonEngine::Pade)};
 
     // call prices stay monotone, convex and within the no-arbitrage box
     const Time t{1.0};
@@ -1114,7 +1114,7 @@ BOOST_AUTO_TEST_CASE(testPadeCalibration) {
         hurst)};
     const auto trueEngine{ext::make_shared<AnalyticRoughHestonEngine>(
         trueModel, integrationOrder, timeSteps,
-        AnalyticRoughHestonEngine::Approximation::Pade)};
+        AnalyticRoughHestonEngine::Pade)};
 
     std::vector<ext::shared_ptr<CalibrationHelper>> helpers;
     for (const Size months : {3, 6, 12, 24}) {
@@ -1145,7 +1145,7 @@ BOOST_AUTO_TEST_CASE(testPadeCalibration) {
         0.2)};
     const auto engine{ext::make_shared<AnalyticRoughHestonEngine>(
         model, integrationOrder, timeSteps,
-        AnalyticRoughHestonEngine::Approximation::Pade)};
+        AnalyticRoughHestonEngine::Pade)};
 
     for (const auto& helper : helpers)
         ext::static_pointer_cast<BlackCalibrationHelper>(helper)
@@ -1308,13 +1308,13 @@ BOOST_AUTO_TEST_CASE(testLiftedAgainstAdamsRiccati) {
 
             const auto adams{ext::make_shared<AnalyticRoughHestonEngine>(
                 model, 128, 1024,
-                AnalyticRoughHestonEngine::Approximation::AdamsPredictorCorrector)};
+                AnalyticRoughHestonEngine::AdamsPredictorCorrector)};
 
             Real previousError{QL_MAX_REAL};
             for (const Size n : {10, 40, 160}) {
                 const auto lifted{ext::make_shared<AnalyticRoughHestonEngine>(
                     model, 128, 512,
-                    AnalyticRoughHestonEngine::Approximation::Lifted, n)};
+                    AnalyticRoughHestonEngine::Lifted, n)};
 
                 Real maxError{0.0};
                 for (const Real u : {0.5, 1.0, 2.0, 5.0, 10.0, 20.0}) {
@@ -1385,7 +1385,7 @@ BOOST_AUTO_TEST_CASE(testLiftedHestonLimit) {
         0.5)};
     const auto lifted{ext::make_shared<AnalyticRoughHestonEngine>(
         roughModel, 128, 256,
-        AnalyticRoughHestonEngine::Approximation::Lifted)};
+        AnalyticRoughHestonEngine::Lifted)};
 
     const auto hestonModel{ext::make_shared<HestonModel>(
         ext::make_shared<HestonProcess>(
@@ -1443,13 +1443,13 @@ BOOST_AUTO_TEST_CASE(testLiftedAgainstAdamsPricing) {
 
         const auto adams{ext::make_shared<AnalyticRoughHestonEngine>(
             model, 128, 1024,
-            AnalyticRoughHestonEngine::Approximation::AdamsPredictorCorrector)};
+            AnalyticRoughHestonEngine::AdamsPredictorCorrector)};
 
         Real previousError{QL_MAX_REAL};
         for (const Size n : {10, 40, 160}) {
             const auto lifted{ext::make_shared<AnalyticRoughHestonEngine>(
                 model, 128, 512,
-                AnalyticRoughHestonEngine::Approximation::Lifted, n)};
+                AnalyticRoughHestonEngine::Lifted, n)};
 
             Real maxError{0.0};
             for (const Real strike : {80.0, 90.0, 100.0, 110.0, 120.0}) {
@@ -1515,7 +1515,7 @@ BOOST_AUTO_TEST_CASE(testLiftedCalibration) {
         hurst)};
     const auto trueEngine{ext::make_shared<AnalyticRoughHestonEngine>(
         trueModel, integrationOrder, timeSteps,
-        AnalyticRoughHestonEngine::Approximation::Lifted, nFactors)};
+        AnalyticRoughHestonEngine::Lifted, nFactors)};
 
     std::vector<ext::shared_ptr<CalibrationHelper>> helpers;
     for (const Size months : {3, 6, 12, 24}) {
@@ -1546,7 +1546,7 @@ BOOST_AUTO_TEST_CASE(testLiftedCalibration) {
         0.2)};
     const auto engine{ext::make_shared<AnalyticRoughHestonEngine>(
         model, integrationOrder, timeSteps,
-        AnalyticRoughHestonEngine::Approximation::Lifted, nFactors)};
+        AnalyticRoughHestonEngine::Lifted, nFactors)};
 
     for (const auto& helper : helpers)
         ext::static_pointer_cast<BlackCalibrationHelper>(helper)

@@ -425,8 +425,8 @@ void testOvernightOvernightBootstrap(bool externalDiscountCurve,
             externalDiscountCurve ? discountCurve : bootstrappedCurveHandle));
 
         Real tolerance = 1e-8;
-        BOOST_CHECK_SMALL(swap.NPV(), tolerance);
-        BOOST_CHECK_SMALL(basisHelpers[i]->impliedQuote() - q.basis, tolerance);
+        QL_CHECK_SMALL(swap.NPV(), tolerance);
+        QL_CHECK_SMALL(basisHelpers[i]->impliedQuote() - q.basis, tolerance);
     }
 }
 
@@ -999,7 +999,7 @@ BOOST_AUTO_TEST_CASE(testOvernightOvernightTelescopicValueDatesWithSimpleAveragi
                       fullSimpleCoupon->valueDates().size());
     BOOST_CHECK_LT(telescopicCompoundedCoupon->valueDates().size(),
                    fullCompoundedCoupon->valueDates().size());
-    BOOST_CHECK_SMALL(telescopicSimpleCoupon->rate() - fullSimpleCoupon->rate(), 1.0e-14);
+    QL_CHECK_SMALL(telescopicSimpleCoupon->rate() - fullSimpleCoupon->rate(), 1.0e-14);
 }
 
 BOOST_AUTO_TEST_CASE(testOvernightIborMarginOnIborLeg) {

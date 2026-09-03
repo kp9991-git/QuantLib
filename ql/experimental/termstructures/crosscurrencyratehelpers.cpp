@@ -437,7 +437,7 @@ namespace QuantLib {
         // zero spreads and spot FX = 1, so that its fair spread on the basis
         // leg reproduces the helper quote.  It pays the base-currency leg.
         swap_ = ext::make_shared<MtMCrossCurrencyBasisSwap>(
-            MtMCrossCurrencyBasisSwap::Type::PayFxBaseCurrency,
+            MtMCrossCurrencyBasisSwap::PayFxBaseCurrency,
             1.0, baseCcyIdx_->currency(), baseCcySchedule_, baseCcyIdx_, 0.0, 1.0,
             1.0, quoteCcyIdx_->currency(), quoteCcySchedule_, quoteCcyIdx_, 0.0, 1.0,
             isFxBaseCurrencyLegResettable_, fxResetFixingDays_,

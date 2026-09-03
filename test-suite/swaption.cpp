@@ -153,7 +153,8 @@ BOOST_AUTO_TEST_CASE(testBlackEngineCaching) {
     Date exerciseDate = vars.calendar.advance(vars.today, 1 * Years);
     Date startDate = vars.calendar.advance(exerciseDate, vars.settlementDays, Days);
 
-    ext::shared_ptr<VanillaSwap> swap = MakeVanillaSwap(1 * Years, vars.index, 0.03)
+    ext::shared_ptr<VanillaSwap> swap = MakeVanillaSwap(1 * Years, vars.index)
+                                            .withFixedRate(0.03)
                                             .withEffectiveDate(startDate)
                                             .withFixedLegTenor(1 * Years)
                                             .withFixedLegDayCount(vars.fixedDayCount)
@@ -189,7 +190,8 @@ BOOST_AUTO_TEST_CASE(testStrikeDependency) {
                 Volatility vol = 0.20;
                 for (Real strike : strikes) {
                     ext::shared_ptr<VanillaSwap> swap =
-                        MakeVanillaSwap(length, vars.index, strike)
+                        MakeVanillaSwap(length, vars.index)
+                            .withFixedRate(strike)
                             .withEffectiveDate(startDate)
                             .withFixedLegTenor(1 * Years)
                             .withFixedLegDayCount(vars.fixedDayCount)
@@ -281,7 +283,8 @@ BOOST_AUTO_TEST_CASE(testSpreadDependency) {
                 std::vector<Real> values_cash;
                 for (Real spread : spreads) {
                     ext::shared_ptr<VanillaSwap> swap =
-                        MakeVanillaSwap(length, vars.index, 0.06)
+                        MakeVanillaSwap(length, vars.index)
+                            .withFixedRate(0.06)
                             .withFixedLegTenor(1 * Years)
                             .withFixedLegDayCount(vars.fixedDayCount)
                             .withEffectiveDate(startDate)
@@ -364,7 +367,8 @@ BOOST_AUTO_TEST_CASE(testSpreadTreatment) {
                                           vars.settlementDays,Days);
                 for (Real spread : spreads) {
                     ext::shared_ptr<VanillaSwap> swap =
-                        MakeVanillaSwap(length, vars.index, 0.06)
+                        MakeVanillaSwap(length, vars.index)
+                            .withFixedRate(0.06)
                             .withFixedLegTenor(1 * Years)
                             .withFixedLegDayCount(vars.fixedDayCount)
                             .withEffectiveDate(startDate)
@@ -372,7 +376,8 @@ BOOST_AUTO_TEST_CASE(testSpreadTreatment) {
                             .withType(k);
                     Spread correction = spread * swap->floatingLegBPS() / swap->fixedLegBPS();
                     ext::shared_ptr<VanillaSwap> equivalentSwap =
-                        MakeVanillaSwap(length, vars.index, 0.06 + correction)
+                        MakeVanillaSwap(length, vars.index)
+                            .withFixedRate(0.06 + correction)
                             .withFixedLegTenor(1 * Years)
                             .withFixedLegDayCount(vars.fixedDayCount)
                             .withEffectiveDate(startDate)
@@ -424,7 +429,8 @@ BOOST_AUTO_TEST_CASE(testCachedValue) {
     Date startDate = vars.calendar.advance(exerciseDate,
                                            vars.settlementDays, Days);
     ext::shared_ptr<VanillaSwap> swap =
-        MakeVanillaSwap(10*Years, vars.index, 0.06)
+        MakeVanillaSwap(10*Years, vars.index)
+        .withFixedRate(0.06)
         .withEffectiveDate(startDate)
         .withFixedLegTenor(1*Years)
         .withFixedLegDayCount(vars.fixedDayCount);
@@ -441,7 +447,8 @@ BOOST_AUTO_TEST_CASE(testCachedValue) {
                     "\nexpected:   " << cachedNPV);
 
     ext::shared_ptr<OvernightIndexedSwap> oiswap =
-        MakeOIS(10*Years, vars.oisIndex, 0.06)
+        MakeOIS(10*Years, vars.oisIndex)
+        .withFixedRate(0.06)
         .withEffectiveDate(startDate)
         .withPaymentFrequency(Annual)
         .withFixedLegDayCount(vars.fixedDayCount);
@@ -478,7 +485,8 @@ BOOST_AUTO_TEST_CASE(testVega) {
             for (Real strike : strikes) {
                 for (Size h=0; h<std::size(type); h++) {
                     ext::shared_ptr<VanillaSwap> swap =
-                        MakeVanillaSwap(length, vars.index, strike)
+                        MakeVanillaSwap(length, vars.index)
+                            .withFixedRate(strike)
                             .withEffectiveDate(startDate)
                             .withFixedLegTenor(1 * Years)
                             .withFixedLegDayCount(vars.fixedDayCount)
@@ -847,7 +855,8 @@ BOOST_AUTO_TEST_CASE(testImpliedVolatility) {
             for (Real& strike : strikes) {
                 for (auto& k : type) {
                     ext::shared_ptr<VanillaSwap> swap =
-                        MakeVanillaSwap(length, vars.index, strike)
+                        MakeVanillaSwap(length, vars.index)
+                            .withFixedRate(strike)
                             .withEffectiveDate(startDate)
                             .withFixedLegTenor(1 * Years)
                             .withFixedLegDayCount(vars.fixedDayCount)
@@ -945,7 +954,8 @@ BOOST_AUTO_TEST_CASE(testImpliedVolatilityOis) {
             for (Real& strike : strikes) {
                 for (auto& k : type) {
                     ext::shared_ptr<OvernightIndexedSwap> swap =
-                        MakeOIS(length, vars.oisIndex, strike)
+                        MakeOIS(length, vars.oisIndex)
+                            .withFixedRate(strike)
                             .withEffectiveDate(startDate)
                             .withPaymentFrequency(Annual)
                             .withFixedLegDayCount(vars.fixedDayCount)
@@ -1073,7 +1083,8 @@ void checkSwaptionDelta(bool useBachelierVol)
                         projectionQuoteHandle.linkTo(ext::make_shared<SimpleQuote>(projectionRate));
 
                         ext::shared_ptr<VanillaSwap> underlying =
-                            MakeVanillaSwap(length, idx, strike)
+                            MakeVanillaSwap(length, idx)
+                                .withFixedRate(strike)
                                 .withEffectiveDate(startDate)
                                 .withFixedLegTenor(1 * Years)
                                 .withFixedLegDayCount(Thirty360(Thirty360::BondBasis))

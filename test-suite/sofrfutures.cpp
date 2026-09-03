@@ -303,6 +303,22 @@ BOOST_AUTO_TEST_CASE(testAnalyticQuoteSensitivities) {
     }
 }
 
+BOOST_AUTO_TEST_CASE(testOvernightIndexFutureRateHelperNotification) {
+    BOOST_TEST_MESSAGE(
+        "Testing OvernightIndexRateFutureHelper is not notified via curve build");
+    Date today(26, October, 2018);
+    Settings::instance().evaluationDate() = today;
+    auto futHelper = ext::make_shared<OvernightIndexFutureRateHelper>(
+        Handle<Quote>(ext::make_shared<SimpleQuote>(97.52)),
+        Date(20, March, 2019), Date(19, June, 2019), ext::make_shared<Sofr>());
+    auto curve = ext::make_shared<PiecewiseYieldCurve<Discount, LogLinear> >(
+        today, std::vector<ext::shared_ptr<RateHelper> >{futHelper}, Actual360());
+    Flag f;
+    f.registerWith(futHelper);
+    curve->nodes();  // force evaluation
+    BOOST_ASSERT(!f.isUp());
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 BOOST_AUTO_TEST_SUITE_END()

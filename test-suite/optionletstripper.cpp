@@ -537,9 +537,8 @@ BOOST_AUTO_TEST_CASE(testFlatTermVolatilityStripping1) {
         for (Size strikeIndex=0; strikeIndex<vars.strikes.size(); ++strikeIndex) {
             cap = MakeCapFloor(CapFloor::Cap,
                                vars.optionTenors[tenorIndex],
-                               iborIndex,
-                               vars.strikes[strikeIndex],
-                               0*Days)
+                               iborIndex)
+                  .withStrike(vars.strikes[strikeIndex])
                   .withPricingEngine(strippedVolEngine);
 
             Real priceFromStrippedVolatility = cap->NPV();
@@ -598,9 +597,8 @@ BOOST_AUTO_TEST_CASE(testTermVolatilityStripping1) {
         for (Size strikeIndex=0; strikeIndex<vars.strikes.size(); ++strikeIndex) {
             cap = MakeCapFloor(CapFloor::Cap,
                                vars.optionTenors[tenorIndex],
-                               iborIndex,
-                               vars.strikes[strikeIndex],
-                               0*Days)
+                               iborIndex)
+                  .withStrike(vars.strikes[strikeIndex])
                   .withPricingEngine(strippedVolEngine);
 
             Real priceFromStrippedVolatility = cap->NPV();
@@ -659,8 +657,9 @@ BOOST_AUTO_TEST_CASE(testTermVolatilityStrippingNormalVol) {
         for (Size strikeIndex = 0; strikeIndex < vars.strikes.size();
              ++strikeIndex) {
             cap = MakeCapFloor(CapFloor::Cap, vars.optionTenors[tenorIndex],
-                               iborIndex, vars.strikes[strikeIndex],
-                               0 * Days).withPricingEngine(strippedVolEngine);
+                               iborIndex)
+                .withStrike(vars.strikes[strikeIndex])
+                .withPricingEngine(strippedVolEngine);
 
             Real priceFromStrippedVolatility = cap->NPV();
 
@@ -727,8 +726,9 @@ BOOST_AUTO_TEST_CASE(testTermVolatilityStrippingShiftedLogNormalVol) {
         for (Size tenorIndex = 0; tenorIndex < vars.optionTenors.size();
              ++tenorIndex) {
             cap = MakeCapFloor(CapFloor::Cap, vars.optionTenors[tenorIndex],
-                               iborIndex, vars.strikes[strikeIndex],
-                               0 * Days).withPricingEngine(strippedVolEngine);
+                               iborIndex)
+                .withStrike(vars.strikes[strikeIndex])
+                .withPricingEngine(strippedVolEngine);
 
             Real priceFromStrippedVolatility = cap->NPV();
 
@@ -1097,7 +1097,7 @@ namespace {
         // The flat ATM curve and flat surface imply an exact zero adjustment;
         // the tight price tolerance below therefore isolates leg conventions.
         for (Volatility spread : stripper2->spreadsVol())
-            BOOST_CHECK_SMALL(spread, 1.0e-12);
+            QL_CHECK_SMALL(spread, 1.0e-12);
 
         Handle<OptionletVolatilityStructure> vol(
             ext::make_shared<StrippedOptionletAdapter>(stripper2));
@@ -1242,10 +1242,10 @@ namespace {
         const std::vector<Rate> strikes = stripper2->atmCapFloorStrikes();
         const std::vector<Real> targetPrices = stripper2->atmCapFloorPrices();
         ext::shared_ptr<CapFloor> cap =
-            MakeCapFloor(CapFloor::Cap, tenors.front(), iborIndex,
-                         strikes.front(), 0 * Days)
+            MakeCapFloor(CapFloor::Cap, tenors.front(), iborIndex)
+                .withStrike(strikes.front())
                 .withPricingEngine(engine);
-        BOOST_CHECK_SMALL(cap->NPV() - targetPrices.front(), vars.tolerance);
+        QL_CHECK_SMALL(cap->NPV() - targetPrices.front(), vars.tolerance);
     }
 
 }
@@ -1309,9 +1309,10 @@ BOOST_AUTO_TEST_CASE(testIborReferenceDateCompatibility) {
             CapFloor::Type type = vars.strikes[j] < stripper1->switchStrike()
                                       ? CapFloor::Floor : CapFloor::Cap;
             ext::shared_ptr<CapFloor> legacyCap =
-                MakeCapFloor(type, capFloorLength, iborIndex, vars.strikes[j], 0 * Days)
+                MakeCapFloor(type, capFloorLength, iborIndex)
+                    .withStrike(vars.strikes[j])
                     .withPricingEngine(legacyEngine);
-            BOOST_CHECK_SMALL(
+            QL_CHECK_SMALL(
                 capFloorPrices[i][j] - legacyCap->NPV(), 1.0e-12);
         }
         capFloorLength += iborIndex->tenor();
@@ -1330,10 +1331,10 @@ BOOST_AUTO_TEST_CASE(testIborReferenceDateCompatibility) {
     volQuote->setValue(0.18);
     for (Size i=0; i<vars.optionTenors.size(); ++i) {
         ext::shared_ptr<CapFloor> legacyCap =
-            MakeCapFloor(CapFloor::Cap, vars.optionTenors[i], iborIndex,
-                         atmStrikes[i], 0 * Days)
+            MakeCapFloor(CapFloor::Cap, vars.optionTenors[i], iborIndex)
+                .withStrike(atmStrikes[i])
                 .withPricingEngine(legacyEngine);
-        BOOST_CHECK_SMALL(atmPrices[i] - legacyCap->NPV(), 1.0e-12);
+        QL_CHECK_SMALL(atmPrices[i] - legacyCap->NPV(), 1.0e-12);
     }
 }
 

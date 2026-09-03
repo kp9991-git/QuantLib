@@ -36,7 +36,9 @@ namespace QuantLib {
 
         // (exp(y) - 1) / y, continuous at the origin
         inline Real expm1OverX(Real y) {
-            return (std::fabs(y) < 1e-8) ? 1.0 + 0.5 * y : std::expm1(y) / y;
+            if (std::fabs(y) < 1e-8)
+                return 1.0 + 0.5 * y;
+            return std::expm1(y) / y;
         }
 
         /*  sin(pi b) / (pi b), the reflection-formula rewriting of
@@ -47,7 +49,9 @@ namespace QuantLib {
         inline Real fractionalKernelNorm(Real b) {
             const Real y{M_PI * b};
 
-            return (std::fabs(y) < 1e-8) ? 1.0 - y * y / 6.0 : std::sin(y) / y;
+            if (std::fabs(y) < 1e-8)
+                return 1.0 - y * y / 6.0;
+            return std::sin(y) / y;
         }
     }
 
