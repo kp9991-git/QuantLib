@@ -341,8 +341,7 @@ namespace QuantLib {
         return -(npvQuoteCcy - npvBaseCcy) / bps;
     }
 
-    ImpliedQuoteSensitivities
-    ConstNotionalCrossCurrencyBasisSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
+    ImpliedQuoteSensitivities ConstNotionalCrossCurrencyBasisSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr || termStructureHandle_.empty() ||
             collateralHandle_.empty())
             return {};
@@ -462,8 +461,7 @@ namespace QuantLib {
         return swap_->fairFxQuoteSpread();
     }
 
-    ImpliedQuoteSensitivities
-    MtMCrossCurrencyBasisSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
+    ImpliedQuoteSensitivities MtMCrossCurrencyBasisSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr || termStructureHandle_.empty() ||
             collateralHandle_.empty())
             return {};
