@@ -3,6 +3,7 @@
 /*
  Copyright (C) 2002, 2003, 2008, 2009 Ferdinando Ametrano
  Copyright (C) 2004, 2007, 2008 StatPro Italia srl
+ Copyright (C) 2026 Kyrylo Protsenko
 
  This file is part of QuantLib, a free-software/open-source library
  for financial quantitative analysts and developers - http://quantlib.org/

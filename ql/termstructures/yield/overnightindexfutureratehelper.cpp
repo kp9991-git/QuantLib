@@ -3,6 +3,7 @@
 /*
  Copyright (C) 2018 Roy Zywina
  Copyright (C) 2019, 2020 Eisuke Tani
+ Copyright (C) 2026 Kyrylo Protsenko
 
  This file is part of QuantLib, a free-software/open-source library
  for financial quantitative analysts and developers - http://quantlib.org/
@@ -92,8 +93,7 @@ namespace QuantLib {
         return future_->NPV();
     }
 
-    ImpliedQuoteSensitivities
-    OvernightIndexFutureRateHelper::impliedQuoteSensitivitiesByCurve() const {
+    ImpliedQuoteSensitivities OvernightIndexFutureRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr)
             return {};
 

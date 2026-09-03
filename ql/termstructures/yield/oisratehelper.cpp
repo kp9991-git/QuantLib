@@ -3,6 +3,7 @@
 /*
  Copyright (C) 2009, 2012 Roland Lichters
  Copyright (C) 2009, 2012 Ferdinando Ametrano
+ Copyright (C) 2026 Kyrylo Protsenko
 
  This file is part of QuantLib, a free-software/open-source library
  for financial quantitative analysts and developers - http://quantlib.org/
