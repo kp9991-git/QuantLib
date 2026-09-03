@@ -130,7 +130,9 @@ namespace QuantLib {
         //    i.e. it can dynamically change
         // 2. input discount curve Handle might be empty now but it could
         //    be assigned a curve later; use a RelinkableHandle here
-        auto tmp = MakeOIS(tenor_, overnightIndex_, 0.0, forwardStart_)
+        auto tmp = MakeOIS(tenor_, overnightIndex_)
+            .withFixedRate(0.0)
+            .withForwardStart(forwardStart_)
             .withDiscountingTermStructure(discountRelinkableHandle_)
             .withEffectiveDate(startDate_)
             .withTerminationDate(endDate_)

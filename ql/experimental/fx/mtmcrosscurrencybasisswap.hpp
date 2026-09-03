@@ -74,7 +74,7 @@ class MtMCrossCurrencyBasisSwap : public CrossCurrencySwap {
     class results;
     class engine;
 
-    enum class Type { PayFxBaseCurrency, ReceiveFxBaseCurrency };
+    enum Type { PayFxBaseCurrency, ReceiveFxBaseCurrency };
 
     //! \name Constructors
     //@{
@@ -146,7 +146,7 @@ class MtMCrossCurrencyBasisSwap : public CrossCurrencySwap {
     //@{
     Type type() const { return type_; }
 
-    bool paysFxBaseCurrency() const { return type_ == Type::PayFxBaseCurrency; }
+    bool paysFxBaseCurrency() const { return type_ == PayFxBaseCurrency; }
 
     Real fxBaseNominal() const { return fxBaseNominal_; }
     const Currency& fxBaseCurrency() const { return fxBaseCurrency_; }

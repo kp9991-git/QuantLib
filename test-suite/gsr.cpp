@@ -608,7 +608,8 @@ BOOST_AUTO_TEST_CASE(testGsrModel) {
 
     ext::shared_ptr<VanillaSwap> underlying = swpIdx->underlyingSwap(expiry);
     ext::shared_ptr<VanillaSwap> underlyingFixed =
-        MakeVanillaSwap(10 * Years, swpIdx->iborIndex(), forward)
+        MakeVanillaSwap(10 * Years, swpIdx->iborIndex())
+            .withFixedRate(forward)
             .withEffectiveDate(swpIdx->valueDate(expiry))
             .withFixedLegCalendar(swpIdx->fixingCalendar())
             .withFixedLegDayCount(swpIdx->dayCounter())
@@ -730,7 +731,8 @@ BOOST_AUTO_TEST_CASE(testGsrModelQuoteUpdate) {
     Real forward = swpIdx->fixing(expiry);
 
     ext::shared_ptr<VanillaSwap> underlyingFixed =
-        MakeVanillaSwap(10 * Years, swpIdx->iborIndex(), forward)
+        MakeVanillaSwap(10 * Years, swpIdx->iborIndex())
+            .withFixedRate(forward)
             .withEffectiveDate(swpIdx->valueDate(expiry))
             .withFixedLegCalendar(swpIdx->fixingCalendar())
             .withFixedLegDayCount(swpIdx->dayCounter())
@@ -1040,7 +1042,7 @@ BOOST_AUTO_TEST_CASE(testSofrSwaptionPaymentLag) {
         Swap::Payer, 1.0, schedule, probe->fairRate(), dc, sofr, 0.0, 2,
         Following, calendar);
     swap->setPricingEngine(discountingEngine);
-    BOOST_CHECK_SMALL(swap->NPV(), 1.0e-12);
+    QL_CHECK_SMALL(swap->NPV(), 1.0e-12);
 
     for (const auto& cashflow : swap->overnightLeg()) {
         auto coupon = ext::dynamic_pointer_cast<OvernightIndexedCoupon>(cashflow);
@@ -1064,19 +1066,19 @@ BOOST_AUTO_TEST_CASE(testSofrSwaptionPaymentLag) {
         ext::make_shared<Gaussian1dJamshidianSwaptionEngine>(gsr));
     Real gaussianJamshidian = swaption->NPV();
 
-    BOOST_CHECK_CLOSE(gaussianJamshidian, gaussian, 0.2);
+    QL_CHECK_CLOSE(gaussianJamshidian, gaussian, 0.2);
     // Conversion to a NonstandardSwap must preserve the payment lag, and the
     // nonstandard Gaussian engine must reproduce the standard engine.
     auto nonstandardSwap = ext::make_shared<NonstandardSwap>(*swap);
     nonstandardSwap->setPricingEngine(discountingEngine);
     BOOST_CHECK_EQUAL(nonstandardSwap->paymentLag(), 2);
-    BOOST_CHECK_SMALL(nonstandardSwap->NPV() - swap->NPV(), 1.0e-12);
+    QL_CHECK_SMALL(nonstandardSwap->NPV() - swap->NPV(), 1.0e-12);
     auto nonstandardSwaption =
         ext::make_shared<NonstandardSwaption>(nonstandardSwap, exercise);
     nonstandardSwaption->setPricingEngine(
         ext::make_shared<Gaussian1dNonstandardSwaptionEngine>(
             gsr, 128, 8.0, true, false, Handle<Quote>(), curve));
-    BOOST_CHECK_CLOSE(nonstandardSwaption->NPV(), gaussian, 0.2);
+    QL_CHECK_CLOSE(nonstandardSwaption->NPV(), gaussian, 0.2);
 
     // Exercise the same path with variable notionals and margins.
     Size coupons = schedule.size() - 1;
@@ -1129,7 +1131,7 @@ BOOST_AUTO_TEST_CASE(testSofrSwaptionPaymentLag) {
     // the variable-notional, variable-margin and payment-lag path. The two
     // prices come from separate integrations, so the check is relative but not
     // at roundoff level (BOOST_CHECK_CLOSE takes a percentage).
-    BOOST_CHECK_CLOSE(scaledSwaption->NPV(), 2.0 * payerValue, 1.0e-6);
+    QL_CHECK_CLOSE(scaledSwaption->NPV(), 2.0 * payerValue, 1.0e-6);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

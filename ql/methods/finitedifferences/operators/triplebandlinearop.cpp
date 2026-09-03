@@ -279,7 +279,7 @@ namespace QuantLib {
             Array result(size);
 
             auto previous = index(0);
-            auto beta = a*dptr[previous] + b;
+            Real beta = a*dptr[previous] + b;
             QL_REQUIRE(beta != 0.0, "division by zero");
             beta = 1.0 / beta;
             result[previous] = r[previous] * beta;

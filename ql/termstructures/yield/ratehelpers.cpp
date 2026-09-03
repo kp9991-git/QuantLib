@@ -599,7 +599,9 @@ namespace QuantLib {
         //    i.e. it can dynamically change
         // 2. input discount curve Handle might be empty now but it could
         //    be assigned a curve later; use a RelinkableHandle here
-        auto tmp = MakeVanillaSwap(tenor_, iborIndex_, 0.0, fwdStart_)
+        auto tmp = MakeVanillaSwap(tenor_, iborIndex_)
+            .withFixedRate(0.0)
+            .withForwardStart(fwdStart_)
             .withEffectiveDate(startDate_)
             .withTerminationDate(endDate_)
             .withDiscountingTermStructure(discountRelinkableHandle_)

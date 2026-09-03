@@ -189,12 +189,14 @@ namespace QuantLib {
         const std::complex<Real>& z, Time t) const {
 
         switch (approximation_) {
-          case Approximation::Pade:
+          case AdamsPredictorCorrector:
+            return lnChFAdams(z, t);
+          case Pade:
             return lnChFPade(z, t);
-          case Approximation::Lifted:
+          case Lifted:
             return lnChFLifted(z, t);
           default:
-            return lnChFAdams(z, t);
+            QL_FAIL("unknown approximation: " << approximation_);
         }
     }
 
@@ -238,7 +240,7 @@ namespace QuantLib {
         const Real v0    = model_->v0();
         const Real a     = model_->hurst() + 0.5;
 
-        const std::vector<std::complex<Real>> h{solveAdamsRiccati(z, t)};
+        const std::vector<std::complex<Real>> h = solveAdamsRiccati(z, t);
 
         const Real dt{t / timeSteps_};
 
@@ -525,12 +527,14 @@ namespace QuantLib {
         QL_REQUIRE(t > 0.0, "maturity must be positive");
 
         switch (approximation_) {
-          case Approximation::Pade:
+          case AdamsPredictorCorrector:
+            return solveAdamsRiccati(z, t).back();
+          case Pade:
             return padeRiccati(z, t);
-          case Approximation::Lifted:
+          case Lifted:
             return solveLiftedRiccati(z, t).psi;
           default:
-            return solveAdamsRiccati(z, t).back();
+            QL_FAIL("unknown approximation: " << approximation_);
         }
     }
 

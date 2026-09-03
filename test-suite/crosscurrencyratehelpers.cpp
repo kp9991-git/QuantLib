@@ -862,7 +862,7 @@ BOOST_AUTO_TEST_CASE(testMtMHelperMatchesStandaloneWithAsymmetricFxHolidays) {
 
     auto helperSwap = helper->swap();
     auto standalone = ext::make_shared<MtMCrossCurrencyBasisSwap>(
-        MtMCrossCurrencyBasisSwap::Type::PayFxBaseCurrency,
+        MtMCrossCurrencyBasisSwap::PayFxBaseCurrency,
         1.0, EURCurrency(), helperSwap->fxBaseSchedule(), eurIndex, 0.0, 1.0,
         1.0, USDCurrency(), helperSwap->fxQuoteSchedule(), usdIndex, 0.0, 1.0,
         /*isFxBaseCurrencyLegResettable=*/false,
@@ -896,15 +896,15 @@ BOOST_AUTO_TEST_CASE(testMtMHelperMatchesStandaloneWithAsymmetricFxHolidays) {
     BOOST_REQUIRE(firstHelperCoupon != nullptr);
     BOOST_CHECK_EQUAL(firstHelperCoupon->fxResetDate(), expectedFxFixingDate);
     BOOST_CHECK_EQUAL(firstHelperCoupon->fxResetValueDate(), start);
-    BOOST_CHECK_SMALL(helperSwap->NPV() - standalone->NPV(), 1.0e-12);
-    BOOST_CHECK_SMALL(helperSwap->fairFxQuoteSpread() - standalone->fairFxQuoteSpread(),
+    QL_CHECK_SMALL(helperSwap->NPV() - standalone->NPV(), 1.0e-12);
+    QL_CHECK_SMALL(helperSwap->fairFxQuoteSpread() - standalone->fairFxQuoteSpread(),
                       1.0e-12);
-    BOOST_CHECK_SMALL(helperSwap->fairFxQuoteSpread() - basis, 1.0e-10);
+    QL_CHECK_SMALL(helperSwap->fairFxQuoteSpread() - basis, 1.0e-10);
 
     // Under the previous zero-day convention the first reset is still in the
     // future and is projected instead of using today's observed fixing.
     auto zeroLagReset = ext::make_shared<MtMCrossCurrencyBasisSwap>(
-        MtMCrossCurrencyBasisSwap::Type::PayFxBaseCurrency,
+        MtMCrossCurrencyBasisSwap::PayFxBaseCurrency,
         1.0, EURCurrency(), helperSwap->fxBaseSchedule(), eurIndex, 0.0, 1.0,
         1.0, USDCurrency(), helperSwap->fxQuoteSchedule(), usdIndex, 0.0, 1.0,
         /*isFxBaseCurrencyLegResettable=*/false, /*fxResetFixingDays=*/0, /*fxResetFixingCalendar=*/Calendar(),
@@ -1174,7 +1174,7 @@ BOOST_AUTO_TEST_CASE(testBasisHelpersWithPaymentLagMatchUnderlyingSwaps) {
         collateralCurve, false, true, std::nullopt, 2);
     constantHelper.setTermStructure(bootstrappedCurve.get());
 
-    BOOST_CHECK_SMALL(constantHelper.impliedQuote() - constantHelper.swap()->fairPaySpread(),
+    QL_CHECK_SMALL(constantHelper.impliedQuote() - constantHelper.swap()->fairPaySpread(),
                       1.0e-12);
 
     MtMCrossCurrencyBasisSwapRateHelper resettingHelper(
@@ -1183,7 +1183,7 @@ BOOST_AUTO_TEST_CASE(testBasisHelpersWithPaymentLagMatchUnderlyingSwaps) {
         collateralCurve, false, true, false, std::nullopt, 2);
     resettingHelper.setTermStructure(bootstrappedCurve.get());
 
-    BOOST_CHECK_SMALL(resettingHelper.impliedQuote() -
+    QL_CHECK_SMALL(resettingHelper.impliedQuote() -
                           resettingHelper.swap()->fairFxBaseSpread(),
                       1.0e-12);
 }

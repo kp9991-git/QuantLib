@@ -93,7 +93,7 @@ namespace QuantLib {
         typedef FourierIntegration Integration;
 
         //! Route used to solve the fractional Riccati equation
-        enum class Approximation { AdamsPredictorCorrector, Pade, Lifted };
+        enum Approximation { AdamsPredictorCorrector, Pade, Lifted };
 
         /*! Constructor using Gauss-Laguerre integration. nFactors is the
             number of exponentials of the lifted kernel and is ignored by
@@ -103,8 +103,7 @@ namespace QuantLib {
             const ext::shared_ptr<RoughHestonModel>& model,
             Size integrationOrder = 128,
             Size timeSteps = 256,
-            Approximation approximation
-                = Approximation::AdamsPredictorCorrector,
+            Approximation approximation = AdamsPredictorCorrector,
             Size nFactors = 20);
 
         /*! Constructor giving full control over the Fourier integration
@@ -117,8 +116,7 @@ namespace QuantLib {
             Size timeSteps = 256,
             Real andersenPiterbargEpsilon = 1e-25,
             Real alpha = -0.5,
-            Approximation approximation
-                = Approximation::AdamsPredictorCorrector,
+            Approximation approximation = AdamsPredictorCorrector,
             Size nFactors = 20);
 
         void update() override;
