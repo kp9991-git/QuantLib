@@ -166,11 +166,11 @@ namespace QuantLib {
         return 100.0 * (1.0 - futureRate);
     }
 
-    QuoteSensitivities FuturesRateHelper::impliedQuoteSensitivitiesByCurve() const {
+    ImpliedQuoteSensitivities FuturesRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr)
             return {};
         // Q = 100 * (1 - ((P1/P2-1)/yearFraction + convexityAdjustment))
-        QuoteSensitivities result;
+        ImpliedQuoteSensitivities result;
         detail::addSimpleForwardSensitivities(result, *termStructure_,
                                               earliestDate_, maturityDate_,
                                               yearFraction_, -100.0);
@@ -227,14 +227,14 @@ namespace QuantLib {
         return iborIndex_->fixing(fixingDate_, true);
     }
 
-    QuoteSensitivities DepositRateHelper::impliedQuoteSensitivitiesByCurve() const {
+    ImpliedQuoteSensitivities DepositRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr)
             return {};
         // IborIndex::forecastFixing gives Q = (P1/P2-1)/tau
         Date d1 = iborIndex_->valueDate(fixingDate_);
         Date d2 = iborIndex_->maturityDate(d1);
         Time tau = iborIndex_->dayCounter().yearFraction(d1, d2);
-        QuoteSensitivities result;
+        ImpliedQuoteSensitivities result;
         detail::addSimpleForwardSensitivities(result, *termStructure_, d1, d2, tau);
         result.available = true;
         return result;
@@ -394,7 +394,7 @@ namespace QuantLib {
                    spanningTime_;
     }
 
-    QuoteSensitivities FraRateHelper::impliedQuoteSensitivitiesByCurve() const {
+    ImpliedQuoteSensitivities FraRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr)
             return {};
         // both impliedQuote() branches use Q = (P1/P2-1)/tau
@@ -410,7 +410,7 @@ namespace QuantLib {
             d2 = maturityDate_;
             tau = spanningTime_;
         }
-        QuoteSensitivities result;
+        ImpliedQuoteSensitivities result;
         detail::addSimpleForwardSensitivities(result, *termStructure_, d1, d2, tau);
         result.available = true;
         return result;
@@ -689,7 +689,7 @@ namespace QuantLib {
         return result;
     }
 
-    QuoteSensitivities SwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
+    ImpliedQuoteSensitivities SwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr || discountRelinkableHandle_.empty())
             return {};
         // custom pricer adjustments are not covered
@@ -879,7 +879,7 @@ namespace QuantLib {
         }
     }
 
-    QuoteSensitivities FxSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
+    ImpliedQuoteSensitivities FxSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr || collHandle_.empty())
             return {};
         DiscountFactor c1 = collHandle_->discount(earliestDate_);
@@ -888,7 +888,7 @@ namespace QuantLib {
         DiscountFactor d1 = termStructureHandle_->discount(earliestDate_);
         DiscountFactor d2 = termStructureHandle_->discount(latestDate_);
         Real spot = spot_->value();
-        QuoteSensitivities result;
+        ImpliedQuoteSensitivities result;
         result.available = true;
         auto& own = result.sensitivities[termStructure_];
         auto& coll = result.sensitivities[&**collHandle_];

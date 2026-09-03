@@ -250,75 +250,14 @@ namespace QuantLib {
             }
         }
 
-        /*! Jacobian of continuous zero rates at node dates with respect to
-            free stored nodes. Unsupported rows use numerical differences.
-        */
-        inline Matrix zeroNodeJacobian(
-                const CurveJacobianNode& n,
-                std::vector<bool>* analyticDerivatives = nullptr) {
-            n.ensure();
-            std::vector<Date> dates = n.nodeDates();
-            Size rows = dates.size(), cols = n.numNodes();
-            QL_REQUIRE(rows == cols,
-                       "the curve has " << rows << " node dates but " <<
-                       cols << " free nodes");
-
-            Matrix J(rows, cols, 0.0);
-            std::vector<bool> analytic(rows, false);
-            std::vector<Real> row;
-            auto zeroAt = [&](Size i) {
-                Time t = n.curve->timeFromReference(dates[i]);
-                DiscountFactor p = n.curve->discount(dates[i], true);
-                QL_REQUIRE(t > 0.0 && p > 0.0,
-                           "cannot calculate a continuous zero rate at node " << i);
-                return -std::log(p) / t;
-            };
-            for (Size i = 0; i < rows; ++i) {
-                Time t = n.curve->timeFromReference(dates[i]);
-                DiscountFactor p = n.curve->discount(dates[i], true);
-                QL_REQUIRE(t > 0.0 && p > 0.0,
-                           "cannot calculate a continuous zero rate at node " << i);
-                std::vector<std::pair<Date, Real>> sensitivity = {
-                    {dates[i], -1.0 / (t * p)}};
-                if (n.analyticEquationRow(sensitivity, row)) {
-                    QL_REQUIRE(row.size() == cols,
-                               "analytical zero/node row has " << row.size() <<
-                               " entries instead of " << cols);
-                    std::copy(row.begin(), row.end(), J.row_begin(i));
-                    analytic[i] = true;
-                }
-            }
-
-            std::vector<Size> numericalRows;
-            for (Size i = 0; i < rows; ++i)
-                if (!analytic[i])
-                    numericalRows.push_back(i);
-            fillNumericalNodeRows(n, numericalRows, J, zeroAt);
-
-            if (analyticDerivatives != nullptr)
-                *analyticDerivatives = std::move(analytic);
-            return J;
-        }
-
-        /*! Jacobian of free stored nodes with respect to continuous zero
-            rates at node dates.
-        */
-        inline Matrix nodeZeroJacobian(
-                const CurveJacobianNode& n,
-                std::vector<bool>* analyticDerivatives = nullptr) {
-            Matrix J = zeroNodeJacobian(n, analyticDerivatives);
-            QL_REQUIRE(J.rows() == J.columns(),
-                       "cannot invert a non-square zero/node Jacobian");
-            return inverse(J);
-        }
-
         //! implied-quote sensitivities of a curve's alive helpers, in row order
         /*! Hoist this out of loops over column curves: the result is
             identical for every column curve of the same row curve.
         */
-    inline std::vector<QuoteSensitivities> aliveHelperSensitivities(const CurveJacobianNode& n) {
+        inline std::vector<ImpliedQuoteSensitivities> aliveHelperSensitivities(
+                const CurveJacobianNode& n) {
             auto helpers = n.aliveHelpers();
-            std::vector<QuoteSensitivities> result;
+            std::vector<ImpliedQuoteSensitivities> result;
             result.reserve(helpers.size());
             for (const auto& helper : helpers)
                 result.push_back(helper->impliedQuoteSensitivitiesByCurve());
@@ -336,7 +275,7 @@ namespace QuantLib {
                                          const CurveJacobianNode& b,
                                          const CurveCrossJacobianContext& context,
                                          std::vector<bool>* analyticEquations = nullptr,
-                                         const std::vector<QuoteSensitivities>*
+                                         const std::vector<ImpliedQuoteSensitivities>*
                                              rowSensitivities = nullptr) {
             a.ensure();
             b.ensure();
@@ -353,10 +292,10 @@ namespace QuantLib {
 
             std::vector<Real> row;
             for (Size i = 0; i < rows; ++i) {
-                QuoteSensitivities fetched;
+                ImpliedQuoteSensitivities fetched;
                 if (rowSensitivities == nullptr)
                     fetched = helpers[i]->impliedQuoteSensitivitiesByCurve();
-                const QuoteSensitivities& s = rowSensitivities != nullptr
+                const ImpliedQuoteSensitivities& s = rowSensitivities != nullptr
                     ? (*rowSensitivities)[i] : fetched;
                 if (!s.available || s.incomplete.count(b.id) != 0)
                     continue;
@@ -413,66 +352,6 @@ namespace QuantLib {
             if (analyticEquations != nullptr)
                 *analyticEquations = std::move(analytic);
             return J;
-        }
-
-        //! dense inverse Jacobian of a curve group, with its layout
-        struct CurveGroupInverse {
-            //! inverse of the stacked bootstrap-equation Jacobian
-            Matrix inverse;
-            //! cumulative free-node (row) counts including the final total
-            std::vector<Size> nodeOffset;
-            //! cumulative helper (column) counts including the final total
-            std::vector<Size> quoteOffset;
-            //! analytical status of each helper equation
-            std::vector<bool> analyticEquations;
-        };
-
-        /*! Inverse Jacobian for a curve group.
-
-              \f[ \sum_P J_{XP} \, dz_P = dq_X \f]
-
-            Rows are nodes and columns are alive helpers in curve order.
-            Offsets include the final total. A quote is analytical only
-            when all its blocks are analytical.
-        */
-        inline CurveGroupInverse curveGroupInverseJacobian(
-                const std::vector<CurveJacobianNode>& curves,
-                const CurveCrossJacobianContext& baseContext = {}) {
-            Size n = curves.size();
-            std::vector<Size> nodeOffset(n + 1, 0), quoteOffset(n + 1, 0);
-            CurveCrossJacobianContext context = baseContext;
-            for (Size i = 0; i < n; ++i) {
-                curves[i].ensure();
-                nodeOffset[i + 1] = nodeOffset[i] + curves[i].numNodes();
-                quoteOffset[i + 1] = quoteOffset[i] + curves[i].aliveHelpers().size();
-                context.addCurve(curves[i].id, curves[i].valueDependencies);
-            }
-            QL_REQUIRE(nodeOffset[n] == quoteOffset[n],
-                       "cannot solve for the node/quote sensitivities: the "
-                       "curves have " << nodeOffset[n] << " free nodes in "
-                       "total but " << quoteOffset[n] << " alive helpers");
-
-            Matrix J(quoteOffset[n], nodeOffset[n], 0.0);
-            std::vector<bool> analytic(quoteOffset[n], true);
-            for (Size i = 0; i < n; ++i) {
-                std::vector<QuoteSensitivities> rowSensitivities =
-                    aliveHelperSensitivities(curves[i]);
-                for (Size j = 0; j < n; ++j) {
-                    std::vector<bool> blockFlags;
-                    Matrix block = curveCrossJacobian(curves[i], curves[j],
-                                                      context, &blockFlags,
-                                                      &rowSensitivities);
-                    for (Size r = 0; r < block.rows(); ++r) {
-                        std::copy(block.row_begin(r), block.row_end(r),
-                                  J.row_begin(quoteOffset[i] + r) + nodeOffset[j]);
-                        analytic[quoteOffset[i] + r] =
-                            analytic[quoteOffset[i] + r] && blockFlags[r];
-                    }
-                }
-            }
-
-            return {inverse(J), std::move(nodeOffset),
-                    std::move(quoteOffset), std::move(analytic)};
         }
 
     }

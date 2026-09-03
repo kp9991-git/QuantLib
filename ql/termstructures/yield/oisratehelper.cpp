@@ -232,7 +232,7 @@ namespace QuantLib {
         return result;
     }
 
-    QuoteSensitivities OISRateHelper::impliedQuoteSensitivitiesByCurve() const {
+    ImpliedQuoteSensitivities OISRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr || discountRelinkableHandle_.empty())
             return {};
         // custom pricer adjustments are not covered

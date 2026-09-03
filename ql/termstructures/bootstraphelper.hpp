@@ -46,7 +46,7 @@ namespace QuantLib {
     /*! Values are sensitivities to the term-structure values queried at
         the given dates. Yield-curve values are discount factors.
     */
-    struct QuoteSensitivities {
+    struct ImpliedQuoteSensitivities {
         //! whether analytical sensitivities are available
         bool available = false;
         //! per-curve sensitivities \f$ (d, \partial Q/\partial P(d)) \f$
@@ -90,7 +90,7 @@ namespace QuantLib {
         /*! Term structures are identified by the pointers from their
             handles. The default result means sensitivities are unavailable.
         */
-        virtual QuoteSensitivities impliedQuoteSensitivitiesByCurve() const {
+        virtual ImpliedQuoteSensitivities impliedQuoteSensitivitiesByCurve() const {
             return {};
         }
         //! sensitivities to the curve being bootstrapped
@@ -105,7 +105,7 @@ namespace QuantLib {
         virtual std::vector<std::pair<Time, Real>> impliedQuoteSensitivities() const {
             if (termStructure_ == nullptr)
                 return {};
-            QuoteSensitivities s = impliedQuoteSensitivitiesByCurve();
+            ImpliedQuoteSensitivities s = impliedQuoteSensitivitiesByCurve();
             const auto* own = static_cast<const TermStructure*>(termStructure_);
             if (!s.available || s.incomplete.count(own) != 0)
                 return {};

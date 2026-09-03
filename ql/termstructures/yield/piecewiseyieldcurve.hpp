@@ -28,7 +28,7 @@
 
 #include <ql/patterns/lazyobject.hpp>
 #include <ql/math/matrix.hpp>
-#include <ql/experimental/termstructures/jacobian/curveriskpropagation.hpp>
+#include <ql/experimental/termstructures/jacobian/curvesensitivitypropagation.hpp>
 #include <ql/termstructures/iterativebootstrap.hpp>
 #include <ql/termstructures/globalbootstrap.hpp>
 #include <ql/termstructures/multicurve.hpp>

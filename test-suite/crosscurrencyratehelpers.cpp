@@ -68,7 +68,7 @@ namespace {
             std::function<void(const ext::shared_ptr<YieldTermStructure>&)>>>&
             installers,
         bool requireAllCurves = true) {
-        QuoteSensitivities s = helper->impliedQuoteSensitivitiesByCurve();
+        ImpliedQuoteSensitivities s = helper->impliedQuoteSensitivitiesByCurve();
         BOOST_REQUIRE(s.available);
         for (const auto& [curve, entries] : s.sensitivities) {
             bool covered = false;
@@ -527,7 +527,7 @@ BOOST_AUTO_TEST_CASE(testConstNotionalAnalyticQuoteSensitivities) {
                     collateralInBaseCurrency, basisOnBaseCurrencyLeg);
             helper->setTermStructure(bootstrappedCurve.get());
 
-            QuoteSensitivities sensitivities =
+            ImpliedQuoteSensitivities sensitivities =
                 helper->impliedQuoteSensitivitiesByCurve();
             BOOST_REQUIRE(sensitivities.available);
             BOOST_CHECK(sensitivities.incomplete.empty());
@@ -836,7 +836,7 @@ BOOST_AUTO_TEST_CASE(testMtMHelperMatchesStandaloneWithAsymmetricFxHolidays) {
     eurDiscount->discount(helper->maturityDate());
     Handle<YieldTermStructure> eurDiscountHandle(eurDiscount);
 
-    QuoteSensitivities sensitivities =
+    ImpliedQuoteSensitivities sensitivities =
         helper->impliedQuoteSensitivitiesByCurve();
     BOOST_REQUIRE(sensitivities.available);
     BOOST_CHECK(sensitivities.incomplete.empty());

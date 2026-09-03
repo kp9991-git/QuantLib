@@ -91,7 +91,8 @@ namespace QuantLib {
         return future_->NPV();
     }
 
-    QuoteSensitivities OvernightIndexFutureRateHelper::impliedQuoteSensitivitiesByCurve() const {
+    ImpliedQuoteSensitivities
+    OvernightIndexFutureRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr)
             return {};
 
@@ -103,7 +104,7 @@ namespace QuantLib {
         Date today = Settings::instance().evaluationDate();
         Time tauRef = dc.yearFraction(valueDate, maturityDate);
 
-        QuoteSensitivities result;
+        ImpliedQuoteSensitivities result;
         auto& own = result.sensitivities[termStructure_];
         switch (future_->averagingMethod()) {
           case RateAveraging::Compound: {

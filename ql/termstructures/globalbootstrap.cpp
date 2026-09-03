@@ -213,7 +213,7 @@ bool MultiCurveBootstrap::analyticCostJacobian(Matrix& jac,
 
     // differentiate w_i * (quote_i - impliedQuote_i) through curve nodes
     for (Size i = 0; i < n; ++i) {
-        std::vector<QuoteSensitivities> rowSensitivities =
+        std::vector<ImpliedQuoteSensitivities> rowSensitivities =
             detail::aliveHelperSensitivities(m.nodes[i]);
         for (Size j = 0; j < n; ++j) {
             std::vector<bool> analytic;

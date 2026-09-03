@@ -48,7 +48,7 @@ namespace QuantLib {
                 return static_cast<const TermStructure*>(curve);
             }
 
-            void addSensitivities(QuoteSensitivities& result,
+            void addSensitivities(ImpliedQuoteSensitivities& result,
                                   const CurvePointSensitivities& entries,
                                   Real scale) {
                 for (const auto& e : entries)
@@ -57,7 +57,7 @@ namespace QuantLib {
 
         }
 
-        void addSimpleForwardSensitivities(QuoteSensitivities& result,
+        void addSimpleForwardSensitivities(ImpliedQuoteSensitivities& result,
                                            const YieldTermStructure& curve,
                                            const Date& d1,
                                            const Date& d2,
@@ -207,7 +207,7 @@ namespace QuantLib {
 
         bool decomposeCouponWithFallback(const ext::shared_ptr<CashFlow>& cf,
                                        CouponContribution& a,
-                                       QuoteSensitivities& result) {
+                                       ImpliedQuoteSensitivities& result) {
             a = decomposeCoupon(cf, true);
             if (a.supported)
                 return true;
@@ -252,7 +252,7 @@ namespace QuantLib {
 
         bool decomposeLeg(const Leg& leg,
                         const YieldTermStructure& discountCurve,
-                        QuoteSensitivities& result,
+                        ImpliedQuoteSensitivities& result,
                         LegContribution& contribution,
                         std::optional<bool> includeSettlementDateFlows,
                         const FlowDecomposer& customFlows) {
@@ -284,7 +284,7 @@ namespace QuantLib {
             return true;
         }
 
-        bool addQuotientSensitivities(QuoteSensitivities& result,
+        bool addQuotientSensitivities(ImpliedQuoteSensitivities& result,
                                       const QuotientSensitivitySpec& spec) {
             auto value = [](const std::vector<LegTerm>& terms) {
                 Real sum = 0.0;
@@ -316,12 +316,12 @@ namespace QuantLib {
             return true;
         }
 
-        QuoteSensitivities fairRateSensitivities(
+        ImpliedQuoteSensitivities fairRateSensitivities(
             const Leg& fixedLeg,
                               const Leg& floatingLeg,
                               Spread helperSpread,
                               const YieldTermStructure& discountCurve) {
-            QuoteSensitivities result;
+            ImpliedQuoteSensitivities result;
             LegContribution fixed, floating;
             if (!decomposeLeg(fixedLeg, discountCurve, result, fixed) ||
                 !decomposeLeg(floatingLeg, discountCurve, result, floating))
@@ -337,12 +337,12 @@ namespace QuantLib {
             return result;
         }
 
-        QuoteSensitivities fairBasisSensitivities(
+        ImpliedQuoteSensitivities fairBasisSensitivities(
             const Leg& baseLeg,
                                const Leg& otherLeg,
                                const YieldTermStructure& discountCurve,
                                std::optional<bool> includeSettlementDateFlows) {
-            QuoteSensitivities result;
+            ImpliedQuoteSensitivities result;
             LegContribution base, other;
             if (!decomposeLeg(baseLeg, discountCurve, result, base,
                             includeSettlementDateFlows) ||
