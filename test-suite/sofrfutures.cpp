@@ -269,7 +269,7 @@ BOOST_AUTO_TEST_CASE(testAnalyticQuoteSensitivities) {
             Handle<Quote>(), averagingMethod);
         helper->setTermStructure(curve.get());
 
-        QuoteSensitivities sensitivities =
+        ImpliedQuoteSensitivities sensitivities =
             helper->impliedQuoteSensitivitiesByCurve();
         BOOST_REQUIRE(sensitivities.available);
         BOOST_CHECK(sensitivities.incomplete.empty());

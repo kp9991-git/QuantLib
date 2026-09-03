@@ -51,7 +51,7 @@ namespace QuantLib {
         using CurvePointSensitivities = std::vector<CurvePointSensitivity>;
 
         //! Adds sensitivities of \f$ s(P(d_1)/P(d_2)-1)/\tau \f$
-        void addSimpleForwardSensitivities(QuoteSensitivities& result,
+        void addSimpleForwardSensitivities(ImpliedQuoteSensitivities& result,
                                            const YieldTermStructure& curve,
                                            const Date& d1,
                                            const Date& d2,
@@ -81,7 +81,7 @@ namespace QuantLib {
             and marks the forecast curve incomplete. */
         bool decomposeCouponWithFallback(const ext::shared_ptr<CashFlow>& cf,
                                        CouponContribution& contribution,
-                                       QuoteSensitivities& result);
+                                       ImpliedQuoteSensitivities& result);
 
         //! undiscounted cash-flow data
         struct FlowSensitivityData {
@@ -120,7 +120,7 @@ namespace QuantLib {
             first. Returns false if a flow cannot be decomposed. */
         bool decomposeLeg(const Leg& leg,
                         const YieldTermStructure& discountCurve,
-                        QuoteSensitivities& result,
+                        ImpliedQuoteSensitivities& result,
                         LegContribution& contribution,
                         std::optional<bool> includeSettlementDateFlows = std::nullopt,
                         const FlowDecomposer& customFlows = {});
@@ -139,18 +139,18 @@ namespace QuantLib {
         };
 
         //! Adds \f$ dQ=dN/D-Q\,dD/D \f$ or returns false when \f$ D=0 \f$
-        bool addQuotientSensitivities(QuoteSensitivities& result,
+        bool addQuotientSensitivities(ImpliedQuoteSensitivities& result,
                                       const QuotientSensitivitySpec& spec);
 
         //! sensitivities of a fixed-vs-floating fair rate
-        QuoteSensitivities fairRateSensitivities(
+        ImpliedQuoteSensitivities fairRateSensitivities(
             const Leg& fixedLeg,
                               const Leg& floatingLeg,
                               Spread helperSpread,
                               const YieldTermStructure& discountCurve);
 
         //! sensitivities of floating-vs-floating fair basis \f$ b=(O-B)/A \f$
-        QuoteSensitivities fairBasisSensitivities(
+        ImpliedQuoteSensitivities fairBasisSensitivities(
             const Leg& baseLeg,
                                const Leg& otherLeg,
                                const YieldTermStructure& discountCurve,

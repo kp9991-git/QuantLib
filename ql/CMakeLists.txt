@@ -1245,7 +1245,7 @@ set(QL_HEADERS
     experimental/termstructures/jacobian/curvechainrulecalculator.hpp
     experimental/termstructures/jacobian/curvecrossjacobian.hpp
     experimental/termstructures/jacobian/curvejacobiangraph.hpp
-    experimental/termstructures/jacobian/curveriskpropagation.hpp
+    experimental/termstructures/jacobian/curvesensitivitypropagation.hpp
     experimental/termstructures/overnightindexedfundingratehelper.hpp
     experimental/termstructures/quotesensitivitycalculator.hpp
     experimental/variancegamma/analyticvariancegammaengine.hpp

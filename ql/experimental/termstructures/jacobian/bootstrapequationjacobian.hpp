@@ -191,29 +191,6 @@ namespace QuantLib {
             return {std::move(J), std::move(analytic)};
         }
 
-        //! cached bootstrap-equation Jacobian of a curve
-        /*! Shared by the bootstrapped curve classes so the cache
-            lifecycle lives in one place. Invalidate whenever the curve
-            nodes can change.
-        */
-        class BootstrapJacobianCache {
-          public:
-            void invalidate() const { valid_ = false; }
-
-            template <class Compute>
-            const BootstrapJacobian& getOrCompute(const Compute& compute) const {
-                if (!valid_) {
-                    result_ = compute();
-                    valid_ = true;
-                }
-                return result_;
-            }
-
-          private:
-            mutable bool valid_ = false;
-            mutable BootstrapJacobian result_;
-        };
-
         //! invert a square bootstrap-equation Jacobian
         inline Matrix inverseBootstrapEquationJacobian(const Matrix& J) {
             QL_REQUIRE(J.rows() == J.columns(),

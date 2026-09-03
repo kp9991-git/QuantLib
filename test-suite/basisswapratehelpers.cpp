@@ -54,7 +54,7 @@ void checkAnalyticQuoteSensitivities(
         const char* helperType,
         bool expectComplete = true) {
     for (Size i = 0; i < helpers.size(); ++i) {
-        QuoteSensitivities sensitivities =
+        ImpliedQuoteSensitivities sensitivities =
             helpers[i]->impliedQuoteSensitivitiesByCurve();
         BOOST_REQUIRE_MESSAGE(
             sensitivities.available,

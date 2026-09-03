@@ -93,79 +93,6 @@ struct Datum {
     Rate rate;
 };
 
-template <class Traits, class Interpolator>
-void checkZeroNodeTransformation(bool expectedAnalytic) {
-    SavedSettings backup;
-    Settings::instance().evaluationDate() = Date(23, Oct, 2025);
-
-    std::vector<ext::shared_ptr<SimpleQuote>> quotes;
-    std::vector<ext::shared_ptr<RateHelper>> helpers;
-    auto estr = ext::make_shared<Estr>();
-    for (auto& [months, rate] : std::vector<std::pair<Integer, Rate>>{
-             {3, 0.0195}, {12, 0.0210}, {24, 0.0225}, {60, 0.0250},
-             {120, 0.0260}}) {
-        auto quote = ext::make_shared<SimpleQuote>(rate);
-        quotes.push_back(quote);
-        helpers.push_back(ext::make_shared<OISRateHelper>(
-            2, months * Months, Handle<Quote>(quote), estr));
-    }
-
-    using Curve = PiecewiseYieldCurve<Traits, Interpolator>;
-    auto curve = ext::make_shared<Curve>(
-        0, TARGET(), helpers, Actual360(), Interpolator());
-    curve->enableExtrapolation();
-
-    CurveJacobianGraph graph(true);
-    graph.add(curve);
-    BOOST_CHECK(graph.isComplete());
-
-    std::vector<bool> analytic;
-    Matrix zeroNode = graph.zeroNodeJacobian(*curve, &analytic);
-    Matrix nodeZero = graph.nodeZeroJacobian(*curve);
-    Size nodes = curve->data().size() - 1;
-    BOOST_REQUIRE_EQUAL(zeroNode.rows(), nodes);
-    BOOST_REQUIRE_EQUAL(zeroNode.columns(), nodes);
-    BOOST_REQUIRE_EQUAL(analytic.size(), nodes);
-    BOOST_CHECK(std::all_of(
-        analytic.begin(), analytic.end(),
-        [expectedAnalytic](bool flag) { return flag == expectedAnalytic; }));
-
-    Matrix identity = zeroNode * nodeZero;
-    for (Size i = 0; i < nodes; ++i)
-        for (Size j = 0; j < nodes; ++j)
-            BOOST_CHECK_SMALL(identity[i][j] - (i == j ? 1.0 : 0.0),
-                              1.0e-8);
-
-    Matrix inverse = graph.inverseJacobian(*curve, *curve);
-    std::vector<Date> dates(curve->dates().begin() + 1,
-                            curve->dates().end());
-    const Real h = 1.0e-6;
-    for (Size k = 0; k < quotes.size(); ++k) {
-        Real value = quotes[k]->value();
-        quotes[k]->setValue(value + h);
-        std::vector<Rate> up;
-        for (const auto& date : dates)
-            up.push_back(curve->zeroRate(
-                date, Actual360(), Continuous, NoFrequency, true).rate());
-
-        quotes[k]->setValue(value - h);
-        std::vector<Rate> down;
-        for (const auto& date : dates)
-            down.push_back(curve->zeroRate(
-                date, Actual360(), Continuous, NoFrequency, true).rate());
-        quotes[k]->setValue(value);
-        curve->data();
-
-        for (Size i = 0; i < nodes; ++i) {
-            Real expected = (up[i] - down[i]) / (2.0 * h);
-            Real calculated = 0.0;
-            for (Size j = 0; j < nodes; ++j)
-                calculated += zeroNode[i][j] * inverse[j][k];
-            BOOST_CHECK_SMALL(calculated - expected, 2.0e-5);
-        }
-    }
-}
-
 struct BondDatum {
     Integer n;
     TimeUnit units;
@@ -430,7 +357,7 @@ void checkAnalyticQuoteSensitivities(
         const std::vector<ext::shared_ptr<RateHelper>>& helpers,
         const char* helperType) {
     for (Size i = 0; i < helpers.size(); ++i) {
-        QuoteSensitivities sensitivities =
+        ImpliedQuoteSensitivities sensitivities =
             helpers[i]->impliedQuoteSensitivitiesByCurve();
         BOOST_REQUIRE_MESSAGE(
             sensitivities.available,
@@ -2784,9 +2711,10 @@ BOOST_AUTO_TEST_CASE(testJacobianWithSharedHelpers) {
     CurveJacobianGraph graph;
     graph.add(curveB);
     graph.add(curveA);
-    std::map<const YieldTermStructure*, Array> nodeRisk;
-    nodeRisk[curveB.get()] = Array(curveB->data().size() - 1, 1.0);
-    BOOST_CHECK_THROW(graph.parRisk(nodeRisk), Error);
+    std::map<const YieldTermStructure*, Array> nodeSensitivities;
+    nodeSensitivities[curveB.get()] =
+        Array(curveB->data().size() - 1, 1.0);
+    BOOST_CHECK_THROW(graph.marketQuoteSensitivities(nodeSensitivities), Error);
 
     // once the curve recalculates it is seated again and works
     quotes[0]->setValue(0.0211);
@@ -2794,14 +2722,9 @@ BOOST_AUTO_TEST_CASE(testJacobianWithSharedHelpers) {
     Matrix J = curveA->jacobian();
     BOOST_CHECK_EQUAL(J.rows(), quotes.size());
 
-    // a cached Jacobian stays valid after the other curve re-seats:
-    // it was computed correctly and no input has changed since
+    // a previous Jacobian result must not hide that the helpers were re-seated
     curveB->jacobian();
-    Matrix cached = curveA->jacobian();
-    BOOST_REQUIRE_EQUAL(cached.rows(), J.rows());
-    for (Size i = 0; i < J.rows(); ++i)
-        for (Size j = 0; j < J.columns(); ++j)
-            BOOST_CHECK_EQUAL(cached[i][j], J[i][j]);
+    BOOST_CHECK_THROW(curveA->jacobian(), Error);
 }
 
 BOOST_AUTO_TEST_CASE(testGlobalBootstrapWithJacobianOptimizer) {
@@ -2915,16 +2838,6 @@ BOOST_AUTO_TEST_CASE(testGlobalBootstrapWithJacobianOptimizer) {
                         << dataCubicNumerical[j] << " vs " << dataCubicFallback[j]);
 }
 
-BOOST_AUTO_TEST_CASE(testZeroNodeTransformation) {
-
-    BOOST_TEST_MESSAGE("Testing transformations between continuous zeros and curve nodes...");
-
-    checkZeroNodeTransformation<Discount, LogLinear>(true);
-    checkZeroNodeTransformation<ZeroYield, Linear>(true);
-    checkZeroNodeTransformation<SimpleZeroYield, Linear>(true);
-    checkZeroNodeTransformation<ForwardRate, BackwardFlat>(false);
-}
-
 BOOST_AUTO_TEST_CASE(testCrossCurveJacobian) {
 
     BOOST_TEST_MESSAGE("Testing cross-curve Jacobians...");
@@ -3029,16 +2942,6 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobian) {
             BOOST_REQUIRE(blockAnalytic.size() == y.quotes->size());
             BOOST_CHECK(std::all_of(blockAnalytic.begin(), blockAnalytic.end(),
                                     [](bool flag) { return flag; }));
-
-            std::vector<bool> denseAnalytic;
-            Matrix dense = graph.inverseJacobianDense(
-                *x.curve, *y.curve, &denseAnalytic);
-            BOOST_REQUIRE_EQUAL(dense.rows(), S.back().rows());
-            BOOST_REQUIRE_EQUAL(dense.columns(), S.back().columns());
-            BOOST_CHECK(denseAnalytic == blockAnalytic);
-            for (Size i = 0; i < dense.rows(); ++i)
-                for (Size j = 0; j < dense.columns(); ++j)
-                    BOOST_CHECK_SMALL(dense[i][j] - S.back()[i][j], 1.0e-10);
         }
         for (Size k = 0; k < y.quotes->size(); ++k) {
             auto& quote = (*y.quotes)[k];
@@ -3067,20 +2970,20 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobian) {
     }
 }
 
-BOOST_AUTO_TEST_CASE(testCurveRiskPropagation) {
+BOOST_AUTO_TEST_CASE(testCurveSensitivityPropagation) {
 
-    BOOST_TEST_MESSAGE("Testing risk propagation over curve dependencies...");
+    BOOST_TEST_MESSAGE("Testing sensitivity propagation over curve dependencies...");
 
-    // Risk propagation is an inverse-Jacobian calculation, not a least-squares
-    // fit.  Non-square and singular bootstrap components must therefore fail
-    // explicitly instead of returning a plausible but undefined risk vector.
+    // Sensitivity propagation is an inverse-Jacobian calculation, not a
+    // least-squares fit. Non-square and singular bootstrap components must
+    // therefore fail explicitly.
     Matrix rectangular(2, 1, 1.0);
     BOOST_CHECK_THROW(detail::checkedQrSolve(
-                          rectangular, Array(2, 1.0), "test Jacobian"),
+                          rectangular, Matrix(2, 1, 1.0), "test Jacobian"),
                       Error);
     Matrix singular(2, 2, 1.0);
     BOOST_CHECK_THROW(detail::checkedQrSolve(
-                          singular, Array(2, 1.0), "test Jacobian"),
+                          singular, Matrix(2, 1, 1.0), "test Jacobian"),
                       Error);
 
     // Multiple right-hand sides reuse one factorization.
@@ -3113,8 +3016,7 @@ BOOST_AUTO_TEST_CASE(testCurveRiskPropagation) {
     BOOST_REQUIRE_EQUAL(selected.columns(), 1);
     BOOST_CHECK_SMALL(selected[0][0] - 0.5, 1.0e-12);
 
-    // Par risk needs only the full system. A reduced zero-risk system can be
-    // singular even when the full system is not.
+    // A cyclic dependency component is solved as one system.
     detail::CurveJacobianBlocks cycle;
     cycle.nodeOffset = {0, 1, 2};
     cycle.quoteOffset = {0, 1, 2};
@@ -3123,23 +3025,19 @@ BOOST_AUTO_TEST_CASE(testCurveRiskPropagation) {
     cycle.coupling.emplace(std::make_pair(1, 0), Matrix(1, 1, 1.0));
     cycle.dependsOn = {{1}, {0}};
     cycle.analyticQuotes = {{true}, {true}};
-    std::vector<Array> cycleRisk = {Array(1, 2.0), Array(1, 3.0)};
+    std::vector<Matrix> cycleSensitivities = {
+        Matrix(1, 1, 2.0), Matrix(1, 1, 3.0)};
+    std::vector<Matrix> propagated =
+        detail::propagateCurveNodeSensitivities(cycle, cycleSensitivities);
+    BOOST_CHECK_SMALL(propagated[0][0][0] - 3.0, 1.0e-12);
+    BOOST_CHECK_SMALL(propagated[1][0][0] - 2.0, 1.0e-12);
 
-    detail::CurveRiskPropagation parOnly =
-        detail::propagateCurveNodeRisk(cycle, cycleRisk, false);
-    BOOST_CHECK_SMALL(parOnly.quoteRisk[0][0] - 3.0, 1.0e-12);
-    BOOST_CHECK_SMALL(parOnly.quoteRisk[1][0] - 2.0, 1.0e-12);
-    BOOST_CHECK_THROW(detail::propagateCurveNodeRisk(cycle, cycleRisk, true),
-                      Error);
-
-    // Compare zero risk with a fixed-node bump while the other curve re-solves.
+    // Inverse-Jacobian blocks agree with a direct inversion for a coupled
+    // component.
     detail::CurveJacobianBlocks coupled = cycle;
     coupled.own = {Matrix(1, 1, 2.0), Matrix(1, 1, 1.5)};
     coupled.coupling[{0, 1}] = Matrix(1, 1, 0.5);
     coupled.coupling[{1, 0}] = Matrix(1, 1, -0.25);
-    detail::CurveRiskPropagation propagated =
-        detail::propagateCurveNodeRisk(coupled, cycleRisk, true);
-
     Matrix full(2, 2);
     full[0][0] = 2.0;
     full[0][1] = 0.5;
@@ -3151,18 +3049,6 @@ BOOST_AUTO_TEST_CASE(testCurveRiskPropagation) {
             Matrix block = detail::inverseCurveJacobianBlock(coupled, a, b);
             BOOST_CHECK_SMALL(block[0][0] - fullInverse[a][b], 1.0e-12);
         }
-
-    const Real nodeBump = 1.0e-6;
-    auto shiftedValue = [&](Size fixed, Real shift) {
-        Real z0 = fixed == 0 ? shift : -0.5 / 2.0 * shift;
-        Real z1 = fixed == 1 ? shift : 0.25 / 1.5 * shift;
-        return cycleRisk[0][0] * z0 + cycleRisk[1][0] * z1;
-    };
-    for (Size b = 0; b < 2; ++b) {
-        Real fd = (shiftedValue(b, nodeBump) - shiftedValue(b, -nodeBump)) /
-                  (2.0 * nodeBump);
-        BOOST_CHECK_SMALL(propagated.nodeRisk[b][0] - fd, 1.0e-12);
-    }
 
     // ESTR discount curve
     std::vector<ext::shared_ptr<SimpleQuote>> oisQuotes;
@@ -3203,21 +3089,19 @@ BOOST_AUTO_TEST_CASE(testCurveRiskPropagation) {
     graph.add(oisCurve);
     graph.add(projCurve);
 
-    // arbitrary direct node risk, as a trade would report it
+    // arbitrary node sensitivities, as a trade would report them
     Array oisRisk(oisCurve->data().size() - 1);
     for (Size j = 0; j < oisRisk.size(); ++j)
         oisRisk[j] = 100.0 * (j + 1);
     Array projRisk(projCurve->data().size() - 1);
     for (Size j = 0; j < projRisk.size(); ++j)
         projRisk[j] = -250.0 * (j + 2);
-    std::map<const YieldTermStructure*, Array> nodeRisk;
-    nodeRisk[oisCurve.get()] = oisRisk;
-    nodeRisk[projCurve.get()] = projRisk;
+    std::map<const YieldTermStructure*, Array> nodeSensitivities;
+    nodeSensitivities[oisCurve.get()] = oisRisk;
+    nodeSensitivities[projCurve.get()] = projRisk;
 
     std::vector<bool> analytic;
-    auto par = graph.parRisk(nodeRisk, &analytic);
-    auto zero = graph.zeroRisk(nodeRisk);
-    auto reference = graph.parRiskDense(nodeRisk);
+    auto market = graph.marketQuoteSensitivities(nodeSensitivities, &analytic);
 
     if (!std::all_of(analytic.begin(), analytic.end(),
                      [](bool flag) { return flag; }))
@@ -3232,21 +3116,7 @@ BOOST_AUTO_TEST_CASE(testCurveRiskPropagation) {
         {"discount", oisCurve, &oisQuotes},
         {"projection", projCurve, &swapQuotes}};
 
-    // substitution over the graph and the dense inverse must agree
-    Real tolerance = 1.0e-8;
-    for (auto& c : curves) {
-        const Array& a = par.at(c.curve.get());
-        const Array& b = reference.at(c.curve.get());
-        BOOST_REQUIRE(a.size() == b.size());
-        for (Size k = 0; k < a.size(); ++k)
-            if (std::fabs(a[k] - b[k]) >
-                tolerance * std::max(1.0, std::fabs(b[k])))
-                BOOST_ERROR("par risk of quote " << k << " of the " << c.name
-                            << " curve is " << a[k] << " by substitution but "
-                            << b[k] << " by the dense inverse");
-    }
-
-    // par risk reproduces a quote bump of the whole system
+    // Market-quote sensitivities reproduce a quote bump of the whole system.
     Real h = 1.0e-6, fdTolerance = 1.0e-4;
     for (auto& y : curves) {
         for (Size k = 0; k < y.quotes->size(); ++k) {
@@ -3263,51 +3133,19 @@ BOOST_AUTO_TEST_CASE(testCurveRiskPropagation) {
 
             Real fd = 0.0;
             for (Size c = 0; c < curves.size(); ++c) {
-                const Array& risk = nodeRisk.at(curves[c].curve.get());
+                const Array& risk =
+                    nodeSensitivities.at(curves[c].curve.get());
                 for (Size j = 0; j + 1 < up[c].size(); ++j)
                     fd += risk[j] * (up[c][j + 1] - dn[c][j + 1]) / (2.0 * h);
             }
-            Real predicted = par.at(y.curve.get())[k];
+            Real predicted = market.at(y.curve.get())[k];
             if (std::fabs(fd - predicted) >
                 fdTolerance * std::max(1.0, std::fabs(fd)))
                 BOOST_ERROR("quote " << k << " of the " << y.name
-                            << " curve carries par risk " << fd
+                            << " curve carries sensitivity " << fd
                             << ", but " << predicted << " was predicted");
         }
     }
-
-    // par risk is one own-Jacobian step away from zero risk
-    for (auto& c : curves) {
-        Matrix own = graph.crossJacobian(*c.curve, *c.curve);
-        Array reconstructed = transpose(own) * par.at(c.curve.get());
-        const Array& z = zero.at(c.curve.get());
-        BOOST_REQUIRE(reconstructed.size() == z.size());
-        for (Size j = 0; j < z.size(); ++j)
-            if (std::fabs(reconstructed[j] - z[j]) >
-                tolerance * std::max(1.0, std::fabs(z[j])))
-                BOOST_ERROR("zero risk of node " << j << " of the " << c.name
-                            << " curve is " << z[j] << ", but its own Jacobian "
-                            "maps the par risk back to " << reconstructed[j]);
-    }
-
-    // the discount curve inherits risk from the curve built on it
-    Matrix coupling = graph.crossJacobian(*projCurve, *oisCurve);
-    Array inherited = oisRisk - transpose(coupling) * par.at(projCurve.get());
-    const Array& oisZero = zero.at(oisCurve.get());
-    for (Size j = 0; j < oisZero.size(); ++j)
-        if (std::fabs(inherited[j] - oisZero[j]) >
-            tolerance * std::max(1.0, std::fabs(oisZero[j])))
-            BOOST_ERROR("zero risk of discount node " << j << " is "
-                        << oisZero[j] << ", but the projection curve passes "
-                        "down " << inherited[j]);
-
-    // nothing is built on the projection curve, so it keeps its own risk
-    const Array& projZero = zero.at(projCurve.get());
-    for (Size j = 0; j < projZero.size(); ++j)
-        if (std::fabs(projZero[j] - projRisk[j]) > tolerance)
-            BOOST_ERROR("zero risk of projection node " << j << " is "
-                        << projZero[j] << ", but no curve is built on it, so "
-                        << projRisk[j] << " was expected");
 }
 
 BOOST_AUTO_TEST_CASE(testCrossCurveJacobianWithLogLinearExtrapolation) {
@@ -3359,7 +3197,7 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobianWithLogLinearExtrapolation) {
 
     // Confirm that the row actually exercised extrapolation rather than only
     // happening to use dates inside the discount curve's node range.
-    QuoteSensitivities quoteSensitivities =
+    ImpliedQuoteSensitivities quoteSensitivities =
         projectionHelpers[0]->impliedQuoteSensitivitiesByCurve();
     BOOST_REQUIRE(quoteSensitivities.available);
     const auto* discountId =
@@ -3608,17 +3446,14 @@ BOOST_AUTO_TEST_CASE(testCrossCurveJacobianThroughWrapper) {
     graph.add(wrapper);
     BOOST_CHECK(graph.isComplete());
 
-    std::map<const YieldTermStructure*, Array> nodeRisk;
-    nodeRisk[oisCurve.get()] = Array(oisCurve->data().size() - 1, 1.0);
-    nodeRisk[projCurve.get()] = Array(projCurve->data().size() - 1, -2.0);
-    auto par = graph.parRisk(nodeRisk);
-    auto dense = graph.parRiskDense(nodeRisk);
-    for (const auto& [curve, risk] : par) {
-        const Array& expected = dense.at(curve);
-        BOOST_REQUIRE_EQUAL(risk.size(), expected.size());
-        for (Size i = 0; i < risk.size(); ++i)
-            BOOST_CHECK_SMALL(risk[i] - expected[i], 1.0e-8);
-    }
+    std::map<const YieldTermStructure*, Array> nodeSensitivities;
+    nodeSensitivities[oisCurve.get()] =
+        Array(oisCurve->data().size() - 1, 1.0);
+    nodeSensitivities[projCurve.get()] =
+        Array(projCurve->data().size() - 1, -2.0);
+    auto market = graph.marketQuoteSensitivities(nodeSensitivities);
+    BOOST_REQUIRE_EQUAL(market.at(oisCurve.get()).size(), oisQuotes.size());
+    BOOST_REQUIRE_EQUAL(market.at(projCurve.get()).size(), swapQuotes.size());
 
     // The same add() entry point rejects a derived curve whose underlying
     // curve cannot be inspected through its public C++ interface.
@@ -3789,24 +3624,19 @@ BOOST_AUTO_TEST_CASE(testCoDependentCurveJacobian) {
         }
     }
 
-    // Recalibrating one member mutates every contributor's nodes. A sibling
-    // Jacobian cached before the recalibration must not survive it.
+    // Recalibrating one member mutates every contributor's nodes. A subsequent
+    // Jacobian request on a sibling must use the recalibrated nodes.
     Matrix oldJacobian = curve6m->jacobian();
     Rate q0 = quotes3m.front()->value();
     quotes3m.front()->setValue(q0 + 1.0e-3);
     curve3m->data();
     Matrix recalibratedJacobian = curve6m->jacobian();
-    curve6m->update();
-    Matrix refreshedJacobian = curve6m->jacobian();
     bool changed = false;
     for (Size i = 0; i < recalibratedJacobian.rows(); ++i) {
         for (Size j = 0; j < recalibratedJacobian.columns(); ++j) {
             changed = changed ||
                       std::fabs(recalibratedJacobian[i][j] - oldJacobian[i][j]) >
                           1.0e-10;
-            BOOST_CHECK_SMALL(recalibratedJacobian[i][j] -
-                                  refreshedJacobian[i][j],
-                              1.0e-7);
         }
     }
     BOOST_CHECK(changed);
@@ -3814,9 +3644,10 @@ BOOST_AUTO_TEST_CASE(testCoDependentCurveJacobian) {
     curve3m->data();
 }
 
-BOOST_AUTO_TEST_CASE(testCoDependentCurveRiskPropagation) {
+BOOST_AUTO_TEST_CASE(testCoDependentCurveSensitivityPropagation) {
 
-    BOOST_TEST_MESSAGE("Testing risk propagation across co-dependent curves...");
+    BOOST_TEST_MESSAGE(
+        "Testing sensitivity propagation across co-dependent curves...");
 
     // a bootstrapped discount curve, so that the co-dependent pair sits above
     // a curve the graph also holds
@@ -3851,14 +3682,12 @@ BOOST_AUTO_TEST_CASE(testCoDependentCurveRiskPropagation) {
     for (Size j = 0; j < risk6m.size(); ++j)
         risk6m[j] = -75.0 * (j + 3);
     Array riskOis(oisCurve->data().size() - 1, 0.0);
-    std::map<const YieldTermStructure*, Array> nodeRisk;
-    nodeRisk[oisCurve.get()] = riskOis;
-    nodeRisk[curve3m.get()] = risk3m;
-    nodeRisk[curve6m.get()] = risk6m;
+    std::map<const YieldTermStructure*, Array> nodeSensitivities;
+    nodeSensitivities[oisCurve.get()] = riskOis;
+    nodeSensitivities[curve3m.get()] = risk3m;
+    nodeSensitivities[curve6m.get()] = risk6m;
 
-    auto par = graph.parRisk(nodeRisk);
-    auto zero = graph.zeroRisk(nodeRisk);
-    auto reference = graph.parRiskDense(nodeRisk);
+    auto market = graph.marketQuoteSensitivities(nodeSensitivities);
 
     struct NamedCurve {
         std::string name;
@@ -3870,19 +3699,6 @@ BOOST_AUTO_TEST_CASE(testCoDependentCurveRiskPropagation) {
         {"discount", oisCurve, &oisQuotes, [&] { return oisCurve->data(); }},
         {"3M", curve3m, &pair->quotes3m, [&] { return curve3m->data(); }},
         {"6M", curve6m, &pair->quotes6m, [&] { return curve6m->data(); }}};
-
-    Real tolerance = 1.0e-8;
-    for (auto& c : curves) {
-        const Array& a = par.at(c.curve.get());
-        const Array& b = reference.at(c.curve.get());
-        BOOST_REQUIRE(a.size() == b.size());
-        for (Size k = 0; k < a.size(); ++k)
-            if (std::fabs(a[k] - b[k]) >
-                tolerance * std::max(1.0, std::fabs(b[k])))
-                BOOST_ERROR("par risk of quote " << k << " of the " << c.name
-                            << " curve is " << a[k] << " by substitution but "
-                            << b[k] << " by the dense inverse");
-    }
 
     Real h = 1.0e-6, fdTolerance = 1.0e-4;
     for (auto& y : curves) {
@@ -3900,84 +3716,18 @@ BOOST_AUTO_TEST_CASE(testCoDependentCurveRiskPropagation) {
 
             Real fd = 0.0;
             for (Size c = 0; c < curves.size(); ++c) {
-                const Array& risk = nodeRisk.at(curves[c].curve.get());
+                const Array& risk =
+                    nodeSensitivities.at(curves[c].curve.get());
                 for (Size j = 0; j + 1 < up[c].size(); ++j)
                     fd += risk[j] * (up[c][j + 1] - dn[c][j + 1]) / (2.0 * h);
             }
-            Real predicted = par.at(y.curve.get())[k];
+            Real predicted = market.at(y.curve.get())[k];
             if (std::fabs(fd - predicted) >
                 fdTolerance * std::max(1.0, std::fabs(fd)))
                 BOOST_ERROR("quote " << k << " of the " << y.name
-                            << " curve carries par risk " << fd
+                            << " curve carries sensitivity " << fd
                             << ", but " << predicted << " was predicted");
         }
-    }
-
-    // Rebuild each reduced system from public graph blocks and compare zero risk.
-    for (Size b = 0; b < curves.size(); ++b) {
-        std::vector<Size> rest;
-        for (Size i = 0; i < curves.size(); ++i)
-            if (i != b)
-                rest.push_back(i);
-
-        std::vector<Size> rows(rest.size() + 1, 0), cols(rest.size() + 1, 0);
-        for (Size i = 0; i < rest.size(); ++i) {
-            const Array& own = nodeRisk.at(curves[rest[i]].curve.get());
-            rows[i + 1] = rows[i] +
-                graph.crossJacobian(*curves[rest[i]].curve,
-                                    *curves[rest[i]].curve).rows();
-            cols[i + 1] = cols[i] + own.size();
-        }
-
-        Matrix jrr(rows.back(), cols.back(), 0.0);
-        for (Size i = 0; i < rest.size(); ++i)
-            for (Size j = 0; j < rest.size(); ++j) {
-                Matrix block = graph.crossJacobian(*curves[rest[i]].curve,
-                                                   *curves[rest[j]].curve);
-                for (Size q = 0; q < block.rows(); ++q)
-                    std::copy(block.row_begin(q), block.row_end(q),
-                              jrr.row_begin(rows[i] + q) + cols[j]);
-            }
-
-        Array sRest(cols.back(), 0.0);
-        for (Size i = 0; i < rest.size(); ++i) {
-            const Array& own = nodeRisk.at(curves[rest[i]].curve.get());
-            std::copy(own.begin(), own.end(), sRest.begin() + cols[i]);
-        }
-
-        Array y = inverse(transpose(jrr)) * sRest;
-
-        Array expected = nodeRisk.at(curves[b].curve.get());
-        for (Size i = 0; i < rest.size(); ++i) {
-            Matrix coupling = graph.crossJacobian(*curves[rest[i]].curve,
-                                                  *curves[b].curve);
-            Array quote(coupling.rows());
-            std::copy(y.begin() + rows[i], y.begin() + rows[i + 1], quote.begin());
-            expected -= transpose(coupling) * quote;
-        }
-
-        const Array& z = zero.at(curves[b].curve.get());
-        BOOST_REQUIRE(expected.size() == z.size());
-        for (Size j = 0; j < z.size(); ++j)
-            if (std::fabs(expected[j] - z[j]) >
-                1.0e-6 * std::max(1.0, std::fabs(expected[j])))
-                BOOST_ERROR("zero risk of node " << j << " of the "
-                            << curves[b].name << " curve is " << z[j]
-                            << ", but dropping that curve's bootstrap conditions "
-                            "and re-solving the rest gives " << expected[j]);
-    }
-
-    // the pair feed each other, and both feed the curve they discount on
-    for (auto& c : curves) {
-        const Array& z = zero.at(c.curve.get());
-        const Array& s = nodeRisk.at(c.curve.get());
-        bool inherited = false;
-        for (Size j = 0; j < z.size(); ++j)
-            inherited = inherited || std::fabs(z[j] - s[j]) > 1.0e-10;
-        if (!inherited)
-            BOOST_ERROR("the " << c.name << " curve was expected to inherit "
-                        "risk from the curves built on it, but its zero risk "
-                        "is exactly the risk it was given");
     }
 }
 

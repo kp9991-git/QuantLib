@@ -26,7 +26,7 @@
 
 #include <ql/math/array.hpp>
 #include <ql/math/matrix.hpp>
-#include <ql/experimental/termstructures/jacobian/curveriskpropagation.hpp>
+#include <ql/experimental/termstructures/jacobian/curvesensitivitypropagation.hpp>
 #include <ql/termstructures/yieldtermstructure.hpp>
 #include <algorithm>
 #include <functional>
@@ -37,17 +37,14 @@
 namespace QuantLib {
 
     //! cross-curve Jacobians for bootstrapped curves
-    /*! Combines the bootstrap equations of registered curves. Rows follow
-        alive helpers and columns follow free nodes in registration order.
+    /*! Combines the bootstrap equations. Rows are helpers and columns are nodes.
     */
     class CurveJacobianGraph {
       public:
         explicit CurveJacobianGraph(bool errorOnIncomplete = false)
         : errorOnIncomplete_(errorOnIncomplete) {}
 
-        /*! Whether every curve dependency reported by registered curves and
-            their helpers is represented in the graph. Helpers without
-            dependency metadata do not make the graph incomplete.
+        /*! Whether every curve dependency reported by curves and their helpers are represented in the graph.
         */
         bool isComplete() const {
             for (const auto& node : nodes_) {
@@ -55,7 +52,7 @@ namespace QuantLib {
                         node.valueDependencies.targets()))
                     return false;
                 for (const auto& helper : node.aliveHelpers()) {
-                    QuoteSensitivities sensitivities =
+                    ImpliedQuoteSensitivities sensitivities =
                         helper->impliedQuoteSensitivitiesByCurve();
                     for (const auto& sensitivity : sensitivities.sensitivities)
                         if (!isRegistered(sensitivity.first))
@@ -71,10 +68,8 @@ namespace QuantLib {
             return true;
         }
 
-        /*! Register a calibrated curve or a supported derived curve.
-            Calibrated curves contribute blocks. Derived curves only record
-            dependencies. By default, adding a derived curve also adds its
-            underlying calibrated curve.
+        /*! Adds (registers) a curve.
+            By default, adding a spread curve also adds its underlying curve.
         */
         template <class Curve>
         void add(const ext::shared_ptr<Curve>& curve, bool addUnderlying = true) {
@@ -111,10 +106,9 @@ namespace QuantLib {
                                               context, analyticEquations);
         }
 
-        /*! Block of the inverse Jacobian for the registered curve system.
+        /*! Block of the inverse Jacobian.
             Rows are the first curve's nodes and columns are the second
-            curve's helper quotes. All registered dependencies are included.
-            The optional flags describe the second curve's helper equations.
+            curve's helper quotes.
         */
         Matrix inverseJacobian(const YieldTermStructure& of,
                                const YieldTermStructure& withRespectTo,
@@ -130,124 +124,39 @@ namespace QuantLib {
             return block;
         }
 
-        /*! Block of the dense inverse Jacobian for the registered curve
-            system. This is the reference implementation of inverseJacobian().
+        /*! PV01-like: sensitivities to market quotes (not scaled, i.e. not multiplied by 0.0001)
+            Input keys must be registered and arrays must match node counts.
         */
-        Matrix inverseJacobianDense(
-                const YieldTermStructure& of,
-                const YieldTermStructure& withRespectTo,
-                std::vector<bool>* analyticEquations = nullptr) const {
-            requireComplete();
-            Size a = index(of), b = index(withRespectTo);
-            detail::CurveGroupInverse dense =
-                detail::curveGroupInverseJacobian(nodes_, jacobianContext(false));
-            const std::vector<Size>& rows = dense.nodeOffset;
-            const std::vector<Size>& cols = dense.quoteOffset;
-
-            Matrix block(rows[a + 1] - rows[a], cols[b + 1] - cols[b]);
-            for (Size i = 0; i < block.rows(); ++i)
-                std::copy(
-                    dense.inverse.row_begin(rows[a] + i) + cols[b],
-                    dense.inverse.row_begin(rows[a] + i) + cols[b + 1],
-                    block.row_begin(i));
-
-            if (analyticEquations != nullptr)
-                *analyticEquations = std::vector<bool>(
-                    dense.analyticEquations.begin() + cols[b],
-                    dense.analyticEquations.begin() + cols[b + 1]);
-            return block;
-        }
-
-        /*! Jacobian of continuously compounded zero rates at a curve's node
-            dates with respect to its free stored nodes.
-        */
-        Matrix zeroNodeJacobian(
-                const YieldTermStructure& curve,
-                std::vector<bool>* analyticDerivatives = nullptr) const {
-            requireComplete();
-            return detail::zeroNodeJacobian(node(curve), analyticDerivatives);
-        }
-
-        /*! Jacobian of a curve's free stored nodes with respect to
-            continuously compounded zero rates at its node dates.
-        */
-        Matrix nodeZeroJacobian(
-                const YieldTermStructure& curve,
-                std::vector<bool>* analyticDerivatives = nullptr) const {
-            requireComplete();
-            return detail::nodeZeroJacobian(node(curve), analyticDerivatives);
-        }
-
-        /*! Convert node risk to par risk using the dense inverse.
-            This is the reference implementation of parRisk().
-        */
-        std::map<const YieldTermStructure*, Array> parRiskDense(
-            const std::map<const YieldTermStructure*, Array>& nodeRisk,
-                     std::vector<bool>* analyticEquations = nullptr) const {
-            requireComplete();
-            detail::CurveGroupInverse dense =
-                detail::curveGroupInverseJacobian(nodes_, jacobianContext(false));
-            const std::vector<Size>& rows = dense.nodeOffset;
-            const std::vector<Size>& cols = dense.quoteOffset;
-            if (analyticEquations != nullptr)
-                *analyticEquations = std::move(dense.analyticEquations);
-
-            // s is the stacked node risk and r = transpose(S) * s
-            Array s(dense.inverse.rows(), 0.0);
-            for (const auto& [curve, risk] : nodeRisk) {
-                Size a = index(*curve);
-                QL_REQUIRE(risk.size() == rows[a+1] - rows[a],
-                           "node risk size (" << risk.size() <<
-                           ") does not match the number of curve nodes (" <<
-                           rows[a+1] - rows[a] << ")");
-                std::copy(risk.begin(), risk.end(), s.begin() + rows[a]);
-            }
-            Array r = transpose(dense.inverse)*s;
-
-            std::map<const YieldTermStructure*, Array> result;
-            for (Size b = 0; b < nodes_.size(); ++b)
-                result[nodes_[b].curve.get()] =
-                    Array(r.begin() + cols[b], r.begin() + cols[b+1]);
-            return result;
-        }
-
-        /*! Propagate direct node risk over the dependency graph.
-            Par risk solves \f$ J^T r=s \f$ in each dependency component.
-            Zero risk fixes each curve while the others rebootstrap. In an
-            acyclic component it satisfies
-            \f$ A_{bb}^T r_b=z_b \f$. A cyclic component requires a reduced
-            solve and need not satisfy this identity. Either output may be
-            null. Input arrays must match node counts.
-        */
-        void propagateNodeRisk(
-                const std::map<const YieldTermStructure*, Array>& nodeRisk,
-                std::map<const YieldTermStructure*, Array>* zeroRisk,
-                std::map<const YieldTermStructure*, Array>* parRisk,
-                std::vector<bool>* analyticEquations = nullptr) const {
+        std::map<const YieldTermStructure*, Array> marketQuoteSensitivities(
+            const std::map<const YieldTermStructure*, Array>& nodeSensitivities,
+            std::vector<bool>* analyticEquations = nullptr) const {
             requireComplete();
             detail::CurveCrossJacobianContext context = jacobianContext(false);
             detail::CurveJacobianBlocks blocks =
                 detail::curveJacobianBlocks(nodes_, context);
 
-            std::vector<Array> direct(nodes_.size());
-            for (const auto& [curve, risk] : nodeRisk) {
+            std::vector<Matrix> direct;
+            direct.reserve(nodes_.size());
+            for (Size i = 0; i < nodes_.size(); ++i)
+                direct.emplace_back(blocks.numNodes(i), 1, 0.0);
+            for (const auto& [curve, sensitivities] : nodeSensitivities) {
                 Size a = index(*curve);
-                QL_REQUIRE(risk.size() == blocks.numNodes(a),
-                           "node risk size (" << risk.size() <<
+                QL_REQUIRE(sensitivities.size() == blocks.numNodes(a),
+                           "node sensitivity size (" << sensitivities.size() <<
                            ") does not match the number of curve nodes (" <<
                            blocks.numNodes(a) << ")");
-                direct[a] = risk;
+                for (Size i = 0; i < sensitivities.size(); ++i)
+                    direct[a][i][0] = sensitivities[i];
             }
 
-            detail::CurveRiskPropagation propagated =
-                detail::propagateCurveNodeRisk(blocks, direct,
-                                               zeroRisk != nullptr);
-
+            std::vector<Matrix> propagated =
+                detail::propagateCurveNodeSensitivities(blocks, direct);
+            std::map<const YieldTermStructure*, Array> result;
             for (Size b = 0; b < nodes_.size(); ++b) {
-                if (zeroRisk != nullptr)
-                    (*zeroRisk)[nodes_[b].curve.get()] = propagated.nodeRisk[b];
-                if (parRisk != nullptr)
-                    (*parRisk)[nodes_[b].curve.get()] = propagated.quoteRisk[b];
+                Array sensitivities(propagated[b].rows());
+                for (Size i = 0; i < sensitivities.size(); ++i)
+                    sensitivities[i] = propagated[b][i][0];
+                result[nodes_[b].curve.get()] = std::move(sensitivities);
             }
 
             if (analyticEquations != nullptr) {
@@ -258,28 +167,6 @@ namespace QuantLib {
                                 curveFlags.begin(), curveFlags.end());
                 *analyticEquations = std::move(flat);
             }
-        }
-
-        /*! Convert direct node risk to node risk for all registered curves,
-            following the dependency graph. Input keys must be registered and
-            arrays must match node counts.
-        */
-        std::map<const YieldTermStructure*, Array> zeroRisk(
-            const std::map<const YieldTermStructure*, Array>& nodeRisk,
-                 std::vector<bool>* analyticEquations = nullptr) const {
-            std::map<const YieldTermStructure*, Array> result;
-            propagateNodeRisk(nodeRisk, &result, nullptr, analyticEquations);
-            return result;
-        }
-
-        /*! Convert node risk to par-instrument risk for all registered curves.
-            Input keys must be registered and arrays must match node counts.
-        */
-        std::map<const YieldTermStructure*, Array> parRisk(
-            const std::map<const YieldTermStructure*, Array>& nodeRisk,
-                std::vector<bool>* analyticEquations = nullptr) const {
-            std::map<const YieldTermStructure*, Array> result;
-            propagateNodeRisk(nodeRisk, nullptr, &result, analyticEquations);
             return result;
         }
 

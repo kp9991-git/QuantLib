@@ -341,13 +341,14 @@ namespace QuantLib {
         return -(npvQuoteCcy - npvBaseCcy) / bps;
     }
 
-    QuoteSensitivities ConstNotionalCrossCurrencyBasisSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
+    ImpliedQuoteSensitivities
+    ConstNotionalCrossCurrencyBasisSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr || termStructureHandle_.empty() ||
             collateralHandle_.empty())
             return {};
 
         // Discount each leg on its own curve and project its coupons
-        QuoteSensitivities result;
+        ImpliedQuoteSensitivities result;
         const Leg* legs[2] = {&baseCcyIborLeg_, &quoteCcyIborLeg_};
         const Handle<YieldTermStructure> discountHandles[2] = {
             baseCcyLegDiscountHandle(), quoteCcyLegDiscountHandle()};
@@ -461,7 +462,8 @@ namespace QuantLib {
         return swap_->fairFxQuoteSpread();
     }
 
-    QuoteSensitivities MtMCrossCurrencyBasisSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
+    ImpliedQuoteSensitivities
+    MtMCrossCurrencyBasisSwapRateHelper::impliedQuoteSensitivitiesByCurve() const {
         if (termStructure_ == nullptr || termStructureHandle_.empty() ||
             collateralHandle_.empty())
             return {};
@@ -469,7 +471,7 @@ namespace QuantLib {
         // Q = -NPV/B
         // NPV = -fx*N_base + N_quote
         // B = payer_k*fxconv_k*A_k
-        QuoteSensitivities result;
+        ImpliedQuoteSensitivities result;
         const Handle<YieldTermStructure>& baseDisc = baseCcyLegDiscountHandle();
         const Handle<YieldTermStructure>& quoteDisc = quoteCcyLegDiscountHandle();
         const auto* baseKey = static_cast<const TermStructure*>(&**baseDisc);
