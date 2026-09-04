@@ -43,17 +43,17 @@ MtMCrossCurrencyBasisSwap::MtMCrossCurrencyBasisSwap(
     Natural fxQuoteLockoutDays, RateAveraging::Type fxQuoteAveragingMethod,
     const bool telescopicValueDates,
     std::optional<bool> useIndexedCoupons,
-    StubIndexConfig fxBaseStubIndexConfig, StubIndexConfig fxQuoteStubIndexConfig)
+    StubIndexSelection fxBaseStubIndexSelection, StubIndexSelection fxQuoteStubIndexSelection)
 : CrossCurrencySwap(2),
   type_(type),
   fxBaseNominal_(fxBaseNominal),
   fxBaseCurrency_(std::move(fxBaseCurrency)), fxBaseSchedule_(std::move(fxBaseSchedule)),
   fxBaseIndex_(fxBaseIndex), fxBaseSpread_(fxBaseSpread), fxBaseGearing_(fxBaseGearing),
-  fxBaseStubIndexConfig_(std::move(fxBaseStubIndexConfig)),
+  fxBaseStubIndexSelection_(std::move(fxBaseStubIndexSelection)),
   fxQuoteNominal_(fxQuoteNominal), fxQuoteCurrency_(std::move(fxQuoteCurrency)),
   fxQuoteSchedule_(std::move(fxQuoteSchedule)), fxQuoteIndex_(fxQuoteIndex),
   fxQuoteSpread_(fxQuoteSpread), fxQuoteGearing_(fxQuoteGearing),
-  fxQuoteStubIndexConfig_(std::move(fxQuoteStubIndexConfig)),
+  fxQuoteStubIndexSelection_(std::move(fxQuoteStubIndexSelection)),
   isFxBaseCurrencyLegResettable_(isFxBaseCurrencyLegResettable),
   fxResetConvention_(
       fxResetFixingDays,
@@ -101,7 +101,7 @@ void MtMCrossCurrencyBasisSwap::initialize() {
                        .withPaymentCalendar(fxBaseSchedule_.calendar())
                        .withPaymentLag(fxBasePaymentLag_)
                        .withIndexedCoupons(useIndexedCoupons_)
-                       .withStubIndexConfig(fxBaseStubIndexConfig_);
+                       .withStubIndexSelection(fxBaseStubIndexSelection_);
     }
     payer_[0] = paysFxBaseCurrency() ? -1.0 : +1.0;
     currencies_[0] = fxBaseCurrency_;
@@ -130,7 +130,7 @@ void MtMCrossCurrencyBasisSwap::initialize() {
                        .withPaymentCalendar(fxQuoteSchedule_.calendar())
                        .withPaymentLag(fxQuotePaymentLag_)
                        .withIndexedCoupons(useIndexedCoupons_)
-                       .withStubIndexConfig(fxQuoteStubIndexConfig_);
+                       .withStubIndexSelection(fxQuoteStubIndexSelection_);
     }
     payer_[1] = -payer_[0];
     currencies_[1] = fxQuoteCurrency_;

@@ -28,6 +28,7 @@
 
 #include <ql/indexes/iborindex.hpp>
 #include <ql/cashflows/iborcoupon.hpp>
+#include <ql/cashflows/stubiborcoupon.hpp>
 #include <ql/cashflows/rateaveraging.hpp>
 #include <ql/optional.hpp>
 #include <ql/time/schedule.hpp>
@@ -86,11 +87,11 @@ class ConstNotionalCrossCurrencyBasisSwap : public ConstNotionalCrossCurrencySwa
         \param telescopicValueDates Flag indicating whether telescopic value dates are used if overnight (default: false).
         \param useIndexedCoupons If provided, overrides the global IborCoupon setting for both legs.
         \param paymentLagOnNotionalExchanges Whether the notional exchanges are lagged by each leg's coupon payment lag (default: false).
-        \param payStubIndexConfig  Index selection applied to irregular coupons
+        \param payStubIndexSelection  Index selection applied to irregular coupons
                                    of the pay leg when it is an Ibor leg (see
-                                   StubIndexConfig).  The default prices broken
+                                   StubIndexSelection).  The default prices broken
                                    periods off the leg's own index.
-        \param recStubIndexConfig  As payStubIndexConfig, for the receive leg.
+        \param recStubIndexSelection  As payStubIndexSelection, for the receive leg.
     */
     ConstNotionalCrossCurrencyBasisSwap(
         Real payNominal, Currency  payCurrency, Schedule  paySchedule,
@@ -104,8 +105,8 @@ class ConstNotionalCrossCurrencyBasisSwap : public ConstNotionalCrossCurrencySwa
         bool telescopicValueDates = false,
         std::optional<bool> useIndexedCoupons = std::nullopt,
         bool paymentLagOnNotionalExchanges = false,
-        StubIndexConfig payStubIndexConfig = {},
-        StubIndexConfig recStubIndexConfig = {});
+        StubIndexSelection payStubIndexSelection = {},
+        StubIndexSelection recStubIndexSelection = {});
     //@}
     //! \name Instrument interface
     //@{
@@ -127,8 +128,8 @@ class ConstNotionalCrossCurrencyBasisSwap : public ConstNotionalCrossCurrencySwa
     const ext::shared_ptr<IborIndex>& recIndex() const { return recIndex_; }
     Spread recSpread() const { return recSpread_; }
     Real recGearing() const { return recGearing_; }
-    const StubIndexConfig& payStubIndexConfig() const { return payStubIndexConfig_; }
-    const StubIndexConfig& recStubIndexConfig() const { return recStubIndexConfig_; }
+    const StubIndexSelection& payStubIndexSelection() const { return payStubIndexSelection_; }
+    const StubIndexSelection& recStubIndexSelection() const { return recStubIndexSelection_; }
     //@}
 
     //! \name Additional interface
@@ -172,8 +173,8 @@ class ConstNotionalCrossCurrencyBasisSwap : public ConstNotionalCrossCurrencySwa
     Integer recPaymentLag_;
     std::optional<bool> useIndexedCoupons_;
     bool paymentLagOnNotionalExchanges_;
-    StubIndexConfig payStubIndexConfig_;
-    StubIndexConfig recStubIndexConfig_;
+    StubIndexSelection payStubIndexSelection_;
+    StubIndexSelection recStubIndexSelection_;
 
     // OIS only
     bool payCompoundSpread_;

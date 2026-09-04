@@ -570,6 +570,9 @@
     <ClInclude Include="ql\cashflows\simplecashflow.hpp">
       <Filter>cashflows</Filter>
     </ClInclude>
+    <ClInclude Include="ql\cashflows\stubiborcoupon.hpp">
+      <Filter>cashflows</Filter>
+    </ClInclude>
     <ClInclude Include="ql\cashflows\timebasket.hpp">
       <Filter>cashflows</Filter>
     </ClInclude>
@@ -601,9 +604,6 @@
       <Filter>indexes</Filter>
     </ClInclude>
     <ClInclude Include="ql\indexes\swapindex.hpp">
-      <Filter>indexes</Filter>
-    </ClInclude>
-    <ClInclude Include="ql\indexes\weightediborindex.hpp">
       <Filter>indexes</Filter>
     </ClInclude>
     <ClInclude Include="ql\indexes\ibor\all.hpp">
@@ -4727,6 +4727,9 @@
     <ClCompile Include="ql\cashflows\simplecashflow.cpp">
       <Filter>cashflows</Filter>
     </ClCompile>
+    <ClCompile Include="ql\cashflows\stubiborcoupon.cpp">
+      <Filter>cashflows</Filter>
+    </ClCompile>
     <ClCompile Include="ql\cashflows\timebasket.cpp">
       <Filter>cashflows</Filter>
     </ClCompile>
@@ -4755,9 +4758,6 @@
       <Filter>indexes</Filter>
     </ClCompile>
     <ClCompile Include="ql\indexes\swapindex.cpp">
-      <Filter>indexes</Filter>
-    </ClCompile>
-    <ClCompile Include="ql\indexes\weightediborindex.cpp">
       <Filter>indexes</Filter>
     </ClCompile>
     <ClCompile Include="ql\indexes\ibor\bibor.cpp">
