@@ -29,7 +29,6 @@
 #include <ql/experimental/termstructures/jacobian/curvesensitivitypropagation.hpp>
 #include <ql/termstructures/yieldtermstructure.hpp>
 #include <algorithm>
-#include <functional>
 #include <map>
 #include <utility>
 #include <vector>
@@ -49,7 +48,7 @@ namespace QuantLib {
         bool isComplete() const {
             for (const auto& node : nodes_) {
                 if (!dependenciesAreRegistered(
-                        node.valueDependencies.targets()))
+                        node.valueDependencies().targets()))
                     return false;
                 for (const auto& helper : node.aliveHelpers()) {
                     ImpliedQuoteSensitivities sensitivities =
@@ -61,37 +60,25 @@ namespace QuantLib {
                         return false;
                 }
             }
-            for (detail::CurveId derived : derivedIds_)
-                if (!dependenciesAreRegistered(
-                        derivedDependencies_.targets(derived)))
-                    return false;
             return true;
         }
 
-        /*! Adds (registers) a curve.
+        /*! Adds (registers) a bootstrapped curve.
             By default, adding a spread curve also adds its underlying curve.
         */
         template <class Curve>
         void add(const ext::shared_ptr<Curve>& curve, bool addUnderlying = true) {
+            static_assert(detail::supportsCurveJacobianNode<Curve>,
+                          "CurveJacobianGraph::add requires a curve that "
+                          "provides bootstrap Jacobians");
             QL_REQUIRE(curve, "null curve");
-            ext::shared_ptr<YieldTermStructure> underlying;
             if constexpr (detail::hasBaseCurveHandle<Curve>) {
                 QL_REQUIRE(!curve->baseCurve().empty(),
-                           "derived curve has an empty base-curve handle");
-                underlying = curve->baseCurve().currentLink();
+                           "spread curve has an empty base-curve handle");
                 if (addUnderlying)
-                    addUnderlyingCurve(underlying);
+                    addUnderlyingCurve(curve->baseCurve().currentLink());
             }
-
-            if constexpr (detail::supportsCurveJacobianNode<Curve>) {
-                addNode(detail::BootstrapJacobianAccess<Curve>::makeNode(curve));
-            } else if constexpr (detail::hasBaseCurveHandle<Curve>) {
-                addDerivedCurve(curve, underlying);
-            } else {
-                QL_FAIL("curve type is not supported by CurveJacobianGraph::add; "
-                        "supported curves must provide bootstrap Jacobians or "
-                        "expose baseCurve()");
-            }
+            addNode(detail::BootstrapJacobianAccess<Curve>::makeNode(curve));
         }
 
         /*! Partial Jacobian of the first curve's helper quotes with respect
@@ -107,8 +94,7 @@ namespace QuantLib {
         }
 
         /*! Block of the inverse Jacobian.
-            Rows are the first curve's nodes and columns are the second
-            curve's helper quotes.
+            Rows are the first curve's nodes and columns are the second curve's helper quotes.
         */
         Matrix inverseJacobian(const YieldTermStructure& of,
                                const YieldTermStructure& withRespectTo,
@@ -199,10 +185,8 @@ namespace QuantLib {
                        "incomplete curve Jacobian graph");
         }
 
-        //! whether the curve was added, as a calibrated or derived curve
+        //! whether the curve was added
         bool isRegistered(detail::CurveId id) const {
-            if (derivedIds_.count(id) != 0)
-                return true;
             return std::any_of(
                 nodes_.begin(), nodes_.end(),
                 [id](const detail::CurveJacobianNode& node) {
@@ -215,22 +199,6 @@ namespace QuantLib {
             return std::all_of(
                 dependencies.begin(), dependencies.end(),
                 [this](detail::CurveId id) { return isRegistered(id); });
-        }
-
-        void addDerivedCurve(
-                const ext::shared_ptr<YieldTermStructure>& curve,
-                const ext::shared_ptr<YieldTermStructure>& dependency) {
-            QL_REQUIRE(dependency, "null base curve of derived curve");
-            QL_REQUIRE(dependency.get() != curve.get(),
-                       "a derived curve cannot depend on itself");
-            const auto* id = static_cast<const TermStructure*>(curve.get());
-            derivedIds_.insert(id);
-            derivedDependencies_.add(
-                id, static_cast<const TermStructure*>(dependency.get()));
-            for (const auto& existing : derivedCurves_)
-                if (existing.get() == curve.get())
-                    return;
-            derivedCurves_.push_back(curve);
         }
 
         Size index(const YieldTermStructure& curve) const {
@@ -247,21 +215,16 @@ namespace QuantLib {
         detail::CurveCrossJacobianContext jacobianContext(bool includeAccountedCurves = true) const {
             detail::CurveCrossJacobianContext result;
             result.assumeUnlistedCurvesIndependent();
-            result.addDependencies(derivedDependencies_);
-            result.addNumericallyPropagatedCurves(derivedIds_);
             for (const auto& node : nodes_) {
                 if (includeAccountedCurves)
-                    result.addCurve(node.id, node.valueDependencies);
+                    result.addCurve(node.id, node.valueDependencies());
                 else
-                    result.addDependencies(node.id, node.valueDependencies);
+                    result.addDependencies(node.id, node.valueDependencies());
             }
             return result;
         }
 
         std::vector<detail::CurveJacobianNode> nodes_;
-        std::vector<ext::shared_ptr<const YieldTermStructure>> derivedCurves_;
-        std::set<const TermStructure*> derivedIds_;
-        detail::CurveChainRuleCalculator derivedDependencies_;
         bool errorOnIncomplete_;
     };
 

@@ -24,6 +24,7 @@
 #include <ql/cashflows/overnightindexedcoupon.hpp>
 #include <ql/errors.hpp>
 #include <ql/indexes/iborindex.hpp>
+#include <ql/patterns/lazyobject.hpp>
 #include <ql/settings.hpp>
 #include <ql/termstructures/yieldtermstructure.hpp>
 
@@ -53,6 +54,14 @@ namespace QuantLib {
                                   Real scale) {
                 for (const auto& e : entries)
                     result.sensitivities[e.curve].emplace_back(e.date, scale*e.derivative);
+            }
+
+            /* Rate helpers unregister their index from the curve handle to
+               avoid notification loops so we do refreshes
+            */
+            void refreshCachedResults(const ext::shared_ptr<CashFlow>& cf) {
+                if (auto lazy = ext::dynamic_pointer_cast<LazyObject>(cf))
+                    lazy->deepUpdate();
             }
 
         }
@@ -208,6 +217,7 @@ namespace QuantLib {
         bool decomposeCouponWithFallback(const ext::shared_ptr<CashFlow>& cf,
                                        CouponContribution& a,
                                        ImpliedQuoteSensitivities& result) {
+            refreshCachedResults(cf);
             a = decomposeCoupon(cf, true);
             if (a.supported)
                 return true;
@@ -276,6 +286,7 @@ namespace QuantLib {
                         d.ntau = a.ntau;
                         d.amountSensitivities = std::move(a.amountSensitivities);
                     } else {
+                        refreshCachedResults(cf);
                         d.amount = cf->amount();
                     }
                 }

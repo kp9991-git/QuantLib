@@ -28,7 +28,6 @@
 #include <ql/experimental/termstructures/jacobian/curvechainrulecalculator.hpp>
 #include <algorithm>
 #include <cmath>
-#include <functional>
 #include <set>
 #include <type_traits>
 #include <utility>
@@ -69,6 +68,10 @@ namespace QuantLib {
             virtual Real nodeValue(Size j) const = 0;
             //! writes free node j
             virtual void setNodeValue(Size j, Real v) const = 0;
+            /*! term structures used to turn nodes into curve values,
+                read from the curve so that relinked handles are followed
+            */
+            virtual CurveDependencies valueDependencies() const = 0;
         };
 
         //! type-erased view of a bootstrapped curve
@@ -76,10 +79,11 @@ namespace QuantLib {
         struct CurveJacobianNode {
             ext::shared_ptr<YieldTermStructure> curve;
             CurveId id = nullptr;
-            //! term structures used to turn nodes into curve values
-            CurveDependencies valueDependencies;
             ext::shared_ptr<const CurveJacobianImpl> impl;
 
+            CurveDependencies valueDependencies() const {
+                return impl->valueDependencies();
+            }
             void ensure() const { impl->ensure(); }
             Size numNodes() const { return impl->numNodes(); }
             std::vector<Date> nodeDates() const { return impl->nodeDates(); }
@@ -125,7 +129,7 @@ namespace QuantLib {
             using Traits = typename Curve::traits_type;
 
             //! CurveJacobianImpl over a concrete bootstrapped curve
-            class Adapter final : public CurveJacobianImpl {
+            class Adapter : public CurveJacobianImpl {
               public:
                 explicit Adapter(ext::shared_ptr<Curve> curve)
                 : curve_(std::move(curve)) {}
@@ -189,32 +193,34 @@ namespace QuantLib {
                     curve_->interpolation_.update();
                 }
 
-              private:
+                //! a stand-alone curve has no value dependencies
+                CurveDependencies valueDependencies() const override { return {}; }
+
+              protected:
                 ext::shared_ptr<Curve> curve_;
             };
+
+            //! Adapter over a spread curve, which depends on its base curve
+            class SpreadAdapter final : public Adapter {
+              public:
+                using Adapter::Adapter;
+
+                CurveDependencies valueDependencies() const override {
+                    // read the handle now: it can be relinked after construction
+                    CurveDependencies dependencies;
+                    dependencies.add(this->curve_->baseCurve().currentLink().get());
+                    return dependencies;
+                }
+            };
+
+            using NodeAdapter =
+                std::conditional_t<hasBaseCurveHandle<Curve>, SpreadAdapter, Adapter>;
 
             static CurveJacobianNode makeNode(const ext::shared_ptr<Curve>& curve) {
                 CurveJacobianNode n;
                 n.curve = curve;
                 n.id = static_cast<const TermStructure*>(curve.get());
-                if constexpr (hasBaseCurveHandle<Curve>) {
-                    if (!curve->baseCurve().empty()) {
-                        const auto* baseId = static_cast<const TermStructure*>(
-                            curve->baseCurve().currentLink().get());
-                        if constexpr (supportsAnalyticJacobian<Traits>) {
-                            n.valueDependencies.add(
-                                baseId,
-                                [curve](const DatedCurveSensitivities& input,
-                                        DatedCurveSensitivities& output) {
-                                    return Traits::transformBaseCurveSensitivities(
-                                        curve.get(), input, output);
-                                });
-                        } else {
-                            n.valueDependencies.add(baseId);
-                        }
-                    }
-                }
-                n.impl = ext::make_shared<Adapter>(curve);
+                n.impl = ext::make_shared<NodeAdapter>(curve);
                 return n;
             }
         };
@@ -248,12 +254,13 @@ namespace QuantLib {
                     J[rows[k]][j - 1] =
                         (up[k] - value(rows[k])) / (2.0 * h);
             }
+            // setNodeValue() sends no notification, so evaluate the helpers at the restored nodes 
+			// (otherwise we may end up with last-bumped instruments)
+            for (Size k = 0; k < rows.size(); ++k)
+                value(rows[k]);
         }
 
         //! implied-quote sensitivities of a curve's alive helpers, in row order
-        /*! Hoist this out of loops over column curves: the result is
-            identical for every column curve of the same row curve.
-        */
         inline std::vector<ImpliedQuoteSensitivities> aliveHelperSensitivities(
                 const CurveJacobianNode& n) {
             auto helpers = n.aliveHelpers();
@@ -266,10 +273,7 @@ namespace QuantLib {
 
         /*! Jacobian of one curve's helper quotes with respect to another
             curve's nodes. The same-curve case uses the diagonal block.
-            Unsupported rows are differentiated numerically. Analytical rows
-            require complete dependency transforms. The optional
-            rowSensitivities avoid recomputing helper sensitivities per
-            column curve; entries must follow a's alive helpers.
+            Unsupported rows are differentiated numerically
         */
         inline Matrix curveCrossJacobian(const CurveJacobianNode& a,
                                          const CurveJacobianNode& b,

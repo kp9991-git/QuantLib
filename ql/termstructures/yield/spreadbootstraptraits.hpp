@@ -59,19 +59,6 @@ namespace QuantLib::detail {
                 w /= baseDiscount;
             return weights;
         }
-
-        template <class C, class Input, class Output>
-        static bool transformBaseCurveSensitivities(
-                const C* c, const Input& input, Output& output) {
-            output.reserve(output.size() + input.size());
-            for (const auto& [date, sensitivity] : input) {
-                DiscountFactor baseDiscount =
-                    c->baseCurve()->discount(date, true);
-                DiscountFactor spread = c->discount(date, true) / baseDiscount;
-                output.emplace_back(date, sensitivity * spread);
-            }
-            return true;
-        }
     };
 
 }

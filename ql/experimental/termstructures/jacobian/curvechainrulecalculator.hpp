@@ -25,10 +25,10 @@
 #define quantlib_experimental_curve_chain_rule_calculator_hpp
 
 #include <ql/errors.hpp>
+#include <ql/termstructures/yieldtermstructure.hpp>
 #include <ql/time/date.hpp>
 #include <ql/types.hpp>
 #include <algorithm>
-#include <functional>
 #include <map>
 #include <set>
 #include <utility>
@@ -36,69 +36,45 @@
 
 namespace QuantLib {
 
-    class TermStructure;
-
     namespace detail {
 
         using CurveId = const TermStructure*;
         using DatedCurveSensitivities = std::vector<std::pair<Date, Real>>;
-        using CurveDependencyTransform =
-            std::function<bool(const DatedCurveSensitivities&,
-                               DatedCurveSensitivities&)>;
 
-        class CurveChainRuleCalculator;
-
-        //! curve dependencies and their sensitivity transforms
+        //! curves whose values enter another curve's values
         class CurveDependencies {
           public:
-            void add(CurveId target,
-                     CurveDependencyTransform transform = {}) {
+            void add(CurveId target) {
                 QL_REQUIRE(target != nullptr, "null dependency target");
-                auto existing = std::find_if(
-                    entries_.begin(), entries_.end(),
-                    [=](const Entry& entry) { return entry.target == target; });
-                Entry entry{target, std::move(transform)};
-                if (existing == entries_.end())
-                    entries_.push_back(std::move(entry));
-                else
-                    *existing = std::move(entry);
+                if (std::find(targets_.begin(), targets_.end(), target) == targets_.end())
+                    targets_.push_back(target);
             }
 
-            std::vector<CurveId> targets() const {
-                std::vector<CurveId> result;
-                result.reserve(entries_.size());
-                for (const auto& entry : entries_)
-                    result.push_back(entry.target);
-                return result;
-            }
+            const std::vector<CurveId>& targets() const { return targets_; }
 
           private:
-            struct Entry {
-                CurveId target;
-                //! empty when the dependency must be followed numerically
-                CurveDependencyTransform transform;
-            };
-
-            std::vector<Entry> entries_;
-
-            friend class CurveChainRuleCalculator;
+            std::vector<CurveId> targets_;
         };
 
         //! chain-rule propagation across curve-value dependencies
+        /*! Every dependency is a multiplicative discount spread: the source
+            curve discounts as \f$ P_s(d) = P_t(d) S(d) \f$ over its target,
+            with \f$ S \f$ fixed by the source's own nodes.  A sensitivity to
+            \f$ P_s(d) \f$ therefore becomes \f$ P_s(d)/P_t(d) \f$ times a
+            sensitivity to \f$ P_t(d) \f$.
+        */
         class CurveChainRuleCalculator {
           public:
-            void add(CurveId source,
-                     CurveId target,
-                     CurveDependencyTransform transform = {}) {
+            void add(CurveId source, CurveId target) {
                 QL_REQUIRE(source != nullptr, "null dependency source");
-                dependencies_[source].add(target, std::move(transform));
+                dependencies_[source].add(target);
             }
 
             void add(CurveId source,
                      const CurveDependencies& dependencies) {
                 QL_REQUIRE(source != nullptr, "null dependency source");
-                for (const auto& entry : dependencies.entries_)
-                    add(source, entry.target, entry.transform);
+                for (CurveId target : dependencies.targets())
+                    add(source, target);
             }
 
             void add(const CurveChainRuleCalculator& other) {
@@ -120,10 +96,10 @@ namespace QuantLib {
                     pending.pop_back();
                     if (!visited.insert(current).second)
                         continue;
-                    for (const auto& entry : outgoing(current).entries_) {
-                        if (entry.target == target)
+                    for (CurveId next : outgoing(current).targets()) {
+                        if (next == target)
                             return true;
-                        pending.push_back(entry.target);
+                        pending.push_back(next);
                     }
                 }
                 return false;
@@ -152,16 +128,12 @@ namespace QuantLib {
 
                 bool foundPath = false;
                 DatedCurveSensitivities accumulated;
-                for (const auto& entry : outgoing(source).entries_) {
-                    if (entry.target != target && !dependsOn(entry.target, target))
+                for (CurveId next : outgoing(source).targets()) {
+                    if (next != target && !dependsOn(next, target))
                         continue;
-                    if (!entry.transform) {
-                        visiting.erase(source);
-                        return false;
-                    }
                     DatedCurveSensitivities direct, branch;
-                    if (!entry.transform(input, direct) ||
-                        !propagate(entry.target, target, direct, branch, visiting)) {
+                    if (!transform(source, next, input, direct) ||
+                        !propagate(next, target, direct, branch, visiting)) {
                         visiting.erase(source);
                         return false;
                     }
@@ -173,6 +145,22 @@ namespace QuantLib {
                 if (foundPath)
                     output.insert(output.end(), accumulated.begin(), accumulated.end());
                 return foundPath;
+            }
+
+            //! dQ/dP_t(d) = dQ/dP_s(d) * P_s(d)/P_t(d) along one edge
+            static bool transform(CurveId source,
+                                  CurveId target,
+                                  const DatedCurveSensitivities& input,
+                                  DatedCurveSensitivities& output) {
+                const auto* s = dynamic_cast<const YieldTermStructure*>(source);
+                const auto* t = dynamic_cast<const YieldTermStructure*>(target);
+                if (s == nullptr || t == nullptr)
+                    return false;
+                output.reserve(output.size() + input.size());
+                for (const auto& [date, dQdP] : input)
+                    output.emplace_back(
+                        date, dQdP * s->discount(date, true) / t->discount(date, true));
+                return true;
             }
 
             const CurveDependencies& outgoing(CurveId source) const {
