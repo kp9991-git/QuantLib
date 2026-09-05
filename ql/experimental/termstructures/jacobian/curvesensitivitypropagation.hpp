@@ -104,7 +104,7 @@ namespace QuantLib {
                     blocks.nodeOffset[i] + curves[i].numNodes();
                 blocks.quoteOffset[i + 1] =
                     blocks.quoteOffset[i] + curves[i].aliveHelpers().size();
-                context.addCurve(curves[i].id, curves[i].valueDependencies);
+                context.addCurve(curves[i].id, curves[i].valueDependencies());
             }
 
             for (Size a = 0; a < n; ++a) {
@@ -130,7 +130,7 @@ namespace QuantLib {
                 const std::vector<ImpliedQuoteSensitivities>* rowSens =
                     rowSensitivities.size() == helpers.size()
                         ? &rowSensitivities : nullptr;
-                for (const auto* target : curves[a].valueDependencies.targets())
+                for (const auto* target : curves[a].valueDependencies().targets())
                     referenced.insert(target);
                 for (const auto* dependency : referenced)
                     unresolved = unresolved ||

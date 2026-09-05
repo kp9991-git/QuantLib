@@ -195,7 +195,7 @@ bool MultiCurveBootstrap::analyticCostJacobian(Matrix& jac,
         m.context.addNumericallyPropagatedCurves(observerTermStructures());
         m.context.assumeUnlistedCurvesIndependent();
         for (const auto& node : m.nodes)
-            m.context.addCurve(node.id, node.valueDependencies);
+            m.context.addCurve(node.id, node.valueDependencies());
         jacobianMetadata_.emplace(std::move(m));
     }
     const JacobianMetadata& m = *jacobianMetadata_;
