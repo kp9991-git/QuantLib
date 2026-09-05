@@ -684,21 +684,21 @@ BOOST_AUTO_TEST_CASE(testOvernightIborStubIndexBootstrap) {
     auto bkbm1m = ext::make_shared<Bkbm1M>(shortForecastCurve);
     auto bkbm3m = ext::make_shared<Bkbm3M>(iborForecastCurve);
 
-    StubIndexConfig stubIndexConfig{StubIndexConvention::Interpolated, {bkbm1m, bkbm3m}};
+    StubIndexSelection stubIndexSelection{StubIndexConvention::Interpolated, {bkbm1m, bkbm3m}};
 
-    auto makeHelper = [&](Spread basis, const Period& tenor, const StubIndexConfig& config) {
+    auto makeHelper = [&](Spread basis, const Period& tenor, const StubIndexSelection& selection) {
         return ext::make_shared<OvernightIborBasisSwapRateHelper>(
             makeQuoteHandle(basis), tenor, 0, calendar, ModifiedFollowing, false,
             overnight, bkbm3m, Handle<YieldTermStructure>(),
             true,  // bootstrap the overnight curve; the ibor leg is exogenous
             0, std::nullopt, true, DateGeneration::Backward, RateAveraging::Compound,
-            false, false, config);
+            false, false, selection);
     };
 
     std::vector<ext::shared_ptr<RateHelper>> helpers = {
-        makeHelper(10e-4, 6 * Months, stubIndexConfig),
-        makeHelper(12e-4, 8 * Months, stubIndexConfig),
-        makeHelper(15e-4, 1 * Years, stubIndexConfig)};
+        makeHelper(10e-4, 6 * Months, stubIndexSelection),
+        makeHelper(12e-4, 8 * Months, stubIndexSelection),
+        makeHelper(15e-4, 1 * Years, stubIndexSelection)};
 
     // the 8M helper's backward quarterly ibor schedule has a broken front period
     auto stubHelper = ext::dynamic_pointer_cast<OvernightIborBasisSwapRateHelper>(helpers[1]);
@@ -723,7 +723,7 @@ BOOST_AUTO_TEST_CASE(testOvernightIborStubIndexBootstrap) {
     for (const auto& h : helpers)
         QL_CHECK_SMALL(h->impliedQuote() - h->quote()->value(), 1e-10);
 
-    // the config is rejected when the ibor forecast curve is the one being bootstrapped
+    // the selection is rejected when the ibor forecast curve is the one being bootstrapped
     auto overnightWithCurve = ext::make_shared<OvernightIndex>(
         "Nzionia", 0, NZDCurrency(), calendar, Actual365Fixed(), shortForecastCurve);
     BOOST_CHECK_THROW(
@@ -731,7 +731,7 @@ BOOST_AUTO_TEST_CASE(testOvernightIborStubIndexBootstrap) {
             makeQuoteHandle(10e-4), 8 * Months, 0, calendar, ModifiedFollowing, false,
             overnightWithCurve, bkbm3m, Handle<YieldTermStructure>(), false, 0,
             std::nullopt, true, DateGeneration::Backward, RateAveraging::Compound,
-            false, false, stubIndexConfig),
+            false, false, stubIndexSelection),
         Error);
 }
 
@@ -749,14 +749,14 @@ BOOST_AUTO_TEST_CASE(testIborIborStubIndexBootstrap) {
     auto bkbm3m = ext::make_shared<Bkbm3M>();  // curve to be bootstrapped
     auto bkbm6m = ext::make_shared<Bkbm6M>(otherForecastCurve);
 
-    StubIndexConfig otherConfig{StubIndexConvention::Interpolated, {bkbm1m, bkbm6m}};
+    StubIndexSelection otherConfig{StubIndexConvention::Interpolated, {bkbm1m, bkbm6m}};
 
     auto makeHelper = [&](Spread basis, const Period& tenor) {
         return ext::make_shared<IborIborBasisSwapRateHelper>(
             makeQuoteHandle(basis), tenor, 0, calendar, ModifiedFollowing, false,
             bkbm3m, bkbm6m, discountCurve,
             true,  // bootstrap the base (3M) curve; the 6M leg is exogenous
-            true, DateGeneration::Backward, 0, StubIndexConfig{}, otherConfig);
+            true, DateGeneration::Backward, 0, StubIndexSelection{}, otherConfig);
     };
 
     std::vector<ext::shared_ptr<RateHelper>> helpers = {
@@ -788,12 +788,12 @@ BOOST_AUTO_TEST_CASE(testIborIborStubIndexBootstrap) {
     for (const auto& h : helpers)
         QL_CHECK_SMALL(h->impliedQuote() - h->quote()->value(), 1e-10);
 
-    // the config is rejected on the leg whose curve is being bootstrapped
+    // the selection is rejected on the leg whose curve is being bootstrapped
     BOOST_CHECK_THROW(
         auto rejected = ext::make_shared<IborIborBasisSwapRateHelper>(
             makeQuoteHandle(10e-4), 8 * Months, 0, calendar, ModifiedFollowing, false,
             bkbm3m, bkbm6m, discountCurve, true, true, DateGeneration::Backward,
-            0, otherConfig, StubIndexConfig{}),
+            0, otherConfig, StubIndexSelection{}),
         Error);
 }
 

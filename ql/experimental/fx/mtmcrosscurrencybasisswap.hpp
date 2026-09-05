@@ -25,6 +25,7 @@
 #define quantlib_mtm_cross_currency_basis_swap_hpp
 
 #include <ql/cashflows/iborcoupon.hpp>
+#include <ql/cashflows/stubiborcoupon.hpp>
 #include <ql/cashflows/rateaveraging.hpp>
 #include <ql/experimental/fx/fxresetcashflows.hpp>
 #include <ql/indexes/iborindex.hpp>
@@ -106,11 +107,11 @@ class MtMCrossCurrencyBasisSwap : public CrossCurrencySwap {
                                         leg and its notional exchanges.
         \param useIndexedCoupons If provided, overrides the global IborCoupon
                                   setting for both legs.
-        \param fxBaseStubIndexConfig  Index selection applied to irregular
+        \param fxBaseStubIndexSelection  Index selection applied to irregular
                                   coupons of the base-currency leg when it is an
-                                  Ibor leg (see StubIndexConfig).  The default
+                                  Ibor leg (see StubIndexSelection).  The default
                                   prices broken periods off the leg's own index.
-        \param fxQuoteStubIndexConfig  As fxBaseStubIndexConfig, for the
+        \param fxQuoteStubIndexSelection  As fxBaseStubIndexSelection, for the
                                   quote-currency leg.
     */
     MtMCrossCurrencyBasisSwap(
@@ -141,8 +142,8 @@ class MtMCrossCurrencyBasisSwap : public CrossCurrencySwap {
         RateAveraging::Type fxQuoteAveragingMethod = RateAveraging::Compound,
         bool telescopicValueDates = false,
         std::optional<bool> useIndexedCoupons = std::nullopt,
-        StubIndexConfig fxBaseStubIndexConfig = {},
-        StubIndexConfig fxQuoteStubIndexConfig = {});
+        StubIndexSelection fxBaseStubIndexSelection = {},
+        StubIndexSelection fxQuoteStubIndexSelection = {});
     //@}
 
     //! \name Instrument interface
@@ -163,11 +164,11 @@ class MtMCrossCurrencyBasisSwap : public CrossCurrencySwap {
     const ext::shared_ptr<IborIndex>& fxBaseIndex() const { return fxBaseIndex_; }
     Spread fxBaseSpread() const { return fxBaseSpread_; }
     Real fxBaseGearing() const { return fxBaseGearing_; }
-    const StubIndexConfig& fxBaseStubIndexConfig() const {
-        return fxBaseStubIndexConfig_;
+    const StubIndexSelection& fxBaseStubIndexSelection() const {
+        return fxBaseStubIndexSelection_;
     }
-    const StubIndexConfig& fxQuoteStubIndexConfig() const {
-        return fxQuoteStubIndexConfig_;
+    const StubIndexSelection& fxQuoteStubIndexSelection() const {
+        return fxQuoteStubIndexSelection_;
     }
 
     Real fxQuoteNominal() const { return fxQuoteNominal_; }
@@ -277,7 +278,7 @@ class MtMCrossCurrencyBasisSwap : public CrossCurrencySwap {
     ext::shared_ptr<IborIndex> fxBaseIndex_;
     Spread fxBaseSpread_;
     Real fxBaseGearing_;
-    StubIndexConfig fxBaseStubIndexConfig_;
+    StubIndexSelection fxBaseStubIndexSelection_;
 
     Real fxQuoteNominal_;
     Currency fxQuoteCurrency_;
@@ -285,7 +286,7 @@ class MtMCrossCurrencyBasisSwap : public CrossCurrencySwap {
     ext::shared_ptr<IborIndex> fxQuoteIndex_;
     Spread fxQuoteSpread_;
     Real fxQuoteGearing_;
-    StubIndexConfig fxQuoteStubIndexConfig_;
+    StubIndexSelection fxQuoteStubIndexSelection_;
 
     bool isFxBaseCurrencyLegResettable_;
     FxResetConvention fxResetConvention_;

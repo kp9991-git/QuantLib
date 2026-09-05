@@ -1410,13 +1410,13 @@ BOOST_AUTO_TEST_CASE(testResettingBasisSwapsWithInterpolatedStubIndex) {
     auto bkbm3m = ext::make_shared<Bkbm3M>(baseProjection);
     auto sofr = ext::make_shared<Sofr>(usdProjection);
 
-    StubIndexConfig stubIndexConfig{StubIndexConvention::Interpolated,
+    StubIndexSelection stubIndexSelection{StubIndexConvention::Interpolated,
                                         {bkbm2m, bkbm3m}};
 
     Handle<YieldTermStructure> collateralHandle = usdProjection;
 
     auto makeHelper = [&](Spread basis, const Period& tenor,
-                          const StubIndexConfig& config,
+                          const StubIndexSelection& selection,
                           bool isFxBaseCurrencyLegResettable) {
         return ext::make_shared<MtMCrossCurrencyBasisSwapRateHelper>(
             makeQuoteHandle(basis), tenor, 2, calendar, ModifiedFollowing, false,
@@ -1424,14 +1424,14 @@ BOOST_AUTO_TEST_CASE(testResettingBasisSwapsWithInterpolatedStubIndex) {
             false,  // collateral in quote currency
             true,   // basis on the base-currency leg
             isFxBaseCurrencyLegResettable, Quarterly, 0, Quarterly, 0, Calendar(),
-            true, config);
+            true, selection);
     };
 
     for (bool isFxBaseCurrencyLegResettable : {false, true}) {
         // The 9M swap's spot start (29 May 2026) plus 9M lands on 28 Feb 2027,
         // so the backward quarterly schedule leaves a broken first period.
         auto stubHelper =
-            makeHelper(-7e-4, 9 * Months, stubIndexConfig, isFxBaseCurrencyLegResettable);
+            makeHelper(-7e-4, 9 * Months, stubIndexSelection, isFxBaseCurrencyLegResettable);
 
         auto stubCoupon = ext::dynamic_pointer_cast<StubIborCoupon>(
             firstIborCoupon(stubHelper->swap()->legs()[0]));
@@ -1455,9 +1455,9 @@ BOOST_AUTO_TEST_CASE(testResettingBasisSwapsWithInterpolatedStubIndex) {
         // Regular periods are untouched: only the broken 9M front period gets a
         // stub coupon, so the 6M and 1Y helpers price identically either way.
         std::vector<ext::shared_ptr<RateHelper> > instruments = {
-            makeHelper(-5e-4, 6 * Months, stubIndexConfig, isFxBaseCurrencyLegResettable),
+            makeHelper(-5e-4, 6 * Months, stubIndexSelection, isFxBaseCurrencyLegResettable),
             stubHelper,
-            makeHelper(-9e-4, 1 * Years, stubIndexConfig, isFxBaseCurrencyLegResettable)};
+            makeHelper(-9e-4, 1 * Years, stubIndexSelection, isFxBaseCurrencyLegResettable)};
 
         auto stubCurve = ext::make_shared<PiecewiseYieldCurve<Discount, LogLinear> >(
             today, instruments, dayCount);
@@ -1504,22 +1504,22 @@ BOOST_AUTO_TEST_CASE(testConstNotionalBasisSwapsWithInterpolatedStubIndex) {
     auto bkbm3m = ext::make_shared<Bkbm3M>(baseProjection);
     auto sofr = ext::make_shared<Sofr>(usdProjection);
 
-    StubIndexConfig stubIndexConfig{StubIndexConvention::Interpolated, {bkbm2m, bkbm3m}};
+    StubIndexSelection stubIndexSelection{StubIndexConvention::Interpolated, {bkbm2m, bkbm3m}};
 
     Handle<YieldTermStructure> collateralHandle = usdProjection;
 
-    auto makeHelper = [&](Spread basis, const Period& tenor, const StubIndexConfig& config) {
+    auto makeHelper = [&](Spread basis, const Period& tenor, const StubIndexSelection& selection) {
         return ext::make_shared<ConstNotionalCrossCurrencyBasisSwapRateHelper>(
             makeQuoteHandle(basis), tenor, 2, calendar, ModifiedFollowing, false,
             bkbm3m, sofr, collateralHandle,
             false,  // collateral in quote currency
             true,   // basis on the base-currency leg
-            Quarterly, 0, Quarterly, true, false, config);
+            Quarterly, 0, Quarterly, true, false, selection);
     };
 
     // As in the MtM test, the 9M helper's backward quarterly schedule leaves
     // a broken first period.
-    auto stubHelper = makeHelper(-7e-4, 9 * Months, stubIndexConfig);
+    auto stubHelper = makeHelper(-7e-4, 9 * Months, stubIndexSelection);
 
     auto stubCoupon = ext::dynamic_pointer_cast<StubIborCoupon>(
         firstIborCoupon(stubHelper->swap()->legs()[0]));
@@ -1539,9 +1539,9 @@ BOOST_AUTO_TEST_CASE(testConstNotionalBasisSwapsWithInterpolatedStubIndex) {
     QL_CHECK_SMALL(stubCoupon->indexFixing() - expected, 1e-14);
 
     std::vector<ext::shared_ptr<RateHelper> > instruments = {
-        makeHelper(-5e-4, 6 * Months, stubIndexConfig),
+        makeHelper(-5e-4, 6 * Months, stubIndexSelection),
         stubHelper,
-        makeHelper(-9e-4, 1 * Years, stubIndexConfig)};
+        makeHelper(-9e-4, 1 * Years, stubIndexSelection)};
 
     auto stubCurve = ext::make_shared<PiecewiseYieldCurve<Discount, LogLinear> >(
         today, instruments, dayCount);
@@ -1586,7 +1586,7 @@ BOOST_AUTO_TEST_CASE(testBasisSwapsWithQuoteLegStubIndex) {
     auto bkbm3m = ext::make_shared<Bkbm3M>(quoteProjection);
     auto sofr = ext::make_shared<Sofr>(usdProjection);
 
-    StubIndexConfig quoteConfig{StubIndexConvention::Interpolated, {bkbm2m, bkbm3m}};
+    StubIndexSelection quoteConfig{StubIndexConvention::Interpolated, {bkbm2m, bkbm3m}};
 
     // collateral in the base currency (USD), so the bootstrapped curve
     // discounts the quote-currency (NZD) leg
@@ -1626,7 +1626,7 @@ BOOST_AUTO_TEST_CASE(testBasisSwapsWithQuoteLegStubIndex) {
                 true,   // collateral in base currency
                 true,   // basis on the base-currency leg
                 isFxBaseCurrencyLegResettable, Quarterly, 0, Quarterly, 0, Calendar(),
-                true, StubIndexConfig{}, quoteConfig);
+                true, StubIndexSelection{}, quoteConfig);
         };
 
         // as in the base-leg tests, the 9M helper's backward quarterly
@@ -1646,7 +1646,7 @@ BOOST_AUTO_TEST_CASE(testBasisSwapsWithQuoteLegStubIndex) {
             sofr, bkbm3m, collateralHandle,
             true,   // collateral in base currency
             true,   // basis on the base-currency leg
-            Quarterly, 0, Quarterly, true, false, StubIndexConfig{}, quoteConfig);
+            Quarterly, 0, Quarterly, true, false, StubIndexSelection{}, quoteConfig);
     };
 
     auto cnStubHelper = makeCNHelper(-7e-4, 9 * Months);
@@ -1676,16 +1676,16 @@ BOOST_AUTO_TEST_CASE(testFixedVsFloatingSwapsWithFloatLegStubIndex) {
     auto bkbm2m = ext::make_shared<Bkbm2M>(shortProjection);
     auto bkbm3m = ext::make_shared<Bkbm3M>(floatProjection);
 
-    StubIndexConfig floatConfig{StubIndexConvention::Interpolated, {bkbm2m, bkbm3m}};
+    StubIndexSelection floatConfig{StubIndexConvention::Interpolated, {bkbm2m, bkbm3m}};
 
     Handle<YieldTermStructure> collateralHandle = usdCollateral;
 
-    auto makeHelper = [&](Rate fixedRate, const Period& tenor, const StubIndexConfig& config) {
+    auto makeHelper = [&](Rate fixedRate, const Period& tenor, const StubIndexSelection& selection) {
         return ext::make_shared<ConstNotionalCrossCurrencySwapRateHelper>(
             makeQuoteHandle(fixedRate), tenor, 2, calendar, ModifiedFollowing, false,
             Quarterly, Actual365Fixed(), bkbm3m, collateralHandle,
             true,  // collateral on the fixed leg; the float-leg discount curve is bootstrapped
-            0, true, std::nullopt, config);
+            0, true, std::nullopt, selection);
     };
 
     // as in the basis-swap tests, the 9M helper's backward quarterly schedule

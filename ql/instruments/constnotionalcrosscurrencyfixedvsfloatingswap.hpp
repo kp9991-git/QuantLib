@@ -28,6 +28,7 @@
 
 #include <ql/indexes/iborindex.hpp>
 #include <ql/cashflows/iborcoupon.hpp>
+#include <ql/cashflows/stubiborcoupon.hpp>
 #include <ql/cashflows/rateaveraging.hpp>
 #include <ql/optional.hpp>
 #include <ql/time/schedule.hpp>
@@ -79,9 +80,9 @@ class ConstNotionalCrossCurrencyFixedVsFloatingSwap : public ConstNotionalCrossC
         \param floatLockoutDays      For overnight legs, optional lockout period in business days (default: 0).
         \param floatAveragingMethod  For overnight legs, averaging method (default: compounding).
         \param useIndexedCoupons If provided, overrides the global IborCoupon setting for the floating leg.
-        \param floatStubIndexConfig  Index selection applied to irregular
+        \param floatStubIndexSelection  Index selection applied to irregular
                                    coupons of the floating leg when it is an
-                                   Ibor leg (see StubIndexConfig).  The default
+                                   Ibor leg (see StubIndexSelection).  The default
                                    prices broken periods off the leg's own index.
     */
     ConstNotionalCrossCurrencyFixedVsFloatingSwap(
@@ -101,7 +102,7 @@ class ConstNotionalCrossCurrencyFixedVsFloatingSwap : public ConstNotionalCrossC
                          Natural floatLockoutDays = 0,
                          RateAveraging::Type floatAveragingMethod = RateAveraging::Compound,
                          std::optional<bool> useIndexedCoupons = std::nullopt,
-                         StubIndexConfig floatStubIndexConfig = {});
+                         StubIndexSelection floatStubIndexSelection = {});
     //@}
 
     //! \name Instrument interface
@@ -126,7 +127,7 @@ class ConstNotionalCrossCurrencyFixedVsFloatingSwap : public ConstNotionalCrossC
     Real floatNominal() const { return floatNominal_; }
     const Currency& floatCurrency() const { return floatCurrency_; }
     const Schedule& floatSchedule() const { return floatSchedule_; }
-    const StubIndexConfig& floatStubIndexConfig() const { return floatStubIndexConfig_; }
+    const StubIndexSelection& floatStubIndexSelection() const { return floatStubIndexSelection_; }
     const ext::shared_ptr<IborIndex>& floatIndex() const { return floatIndex_; }
     Rate floatSpread() const { return floatSpread_; }
     BusinessDayConvention floatPaymentBdc() const { return floatPaymentBdc_; }
@@ -186,7 +187,7 @@ class ConstNotionalCrossCurrencyFixedVsFloatingSwap : public ConstNotionalCrossC
     Natural floatLockoutDays_;
     RateAveraging::Type floatAveragingMethod_;
     std::optional<bool> useIndexedCoupons_;
-    StubIndexConfig floatStubIndexConfig_;
+    StubIndexSelection floatStubIndexSelection_;
 
     mutable Rate fairFixedRate_;
     mutable Spread fairSpread_;

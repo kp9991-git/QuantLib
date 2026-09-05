@@ -31,6 +31,7 @@ set(QL_SOURCES
     cashflows/rangeaccrual.cpp
     cashflows/replication.cpp
     cashflows/simplecashflow.cpp
+    cashflows/stubiborcoupon.cpp
     cashflows/timebasket.cpp
     cashflows/yoyinflationcoupon.cpp
     cashflows/zeroinflationcashflow.cpp
@@ -242,7 +243,6 @@ set(QL_SOURCES
     indexes/swap/jpyliborswap.cpp
     indexes/swap/usdliborswap.cpp
     indexes/swapindex.cpp
-    indexes/weightediborindex.cpp
     instrument.cpp
     instruments/asianoption.cpp
     instruments/assetswap.cpp
@@ -1022,6 +1022,7 @@ set(QL_HEADERS
     cashflows/rateaveraging.hpp
     cashflows/replication.hpp
     cashflows/simplecashflow.hpp
+    cashflows/stubiborcoupon.hpp
     cashflows/timebasket.hpp
     cashflows/yoyinflationcoupon.hpp
     cashflows/zeroinflationcashflow.hpp
@@ -1347,7 +1348,6 @@ set(QL_HEADERS
     indexes/swap/jpyliborswap.hpp
     indexes/swap/usdliborswap.hpp
     indexes/swapindex.hpp
-    indexes/weightediborindex.hpp
     instrument.hpp
     instruments/asianoption.hpp
     instruments/assetswap.hpp

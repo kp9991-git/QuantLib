@@ -37,7 +37,7 @@ ConstNotionalCrossCurrencyFixedVsFloatingSwap::ConstNotionalCrossCurrencyFixedVs
     BusinessDayConvention floatPaymentBdc, Natural floatPaymentLag, Calendar  floatPaymentCalendar,
     const bool telescopicValueDates, bool floatCompoundSpread, Natural floatLookbackDays,
     bool floatObservationShift, Natural floatLockoutDays, RateAveraging::Type floatAveragingMethod,
-    std::optional<bool> useIndexedCoupons, StubIndexConfig floatStubIndexConfig)
+    std::optional<bool> useIndexedCoupons, StubIndexSelection floatStubIndexSelection)
     : ConstNotionalCrossCurrencySwap(2), type_(type), fixedNominal_(fixedNominal), fixedCurrency_(std::move(fixedCurrency)),
       fixedSchedule_(std::move(fixedSchedule)), fixedRate_(fixedRate), fixedDayCount_(std::move(fixedDayCount)),
       fixedPaymentBdc_(fixedPaymentBdc), fixedPaymentLag_(fixedPaymentLag), fixedPaymentCalendar_(fixedPaymentCalendar),
@@ -49,7 +49,7 @@ ConstNotionalCrossCurrencyFixedVsFloatingSwap::ConstNotionalCrossCurrencyFixedVs
       floatObservationShift_(floatObservationShift),
       floatLockoutDays_(floatLockoutDays), floatAveragingMethod_(floatAveragingMethod),
       useIndexedCoupons_(useIndexedCoupons),
-      floatStubIndexConfig_(std::move(floatStubIndexConfig)) {
+      floatStubIndexSelection_(std::move(floatStubIndexSelection)) {
 
     // Build the float leg
     Leg floatLeg;
@@ -74,7 +74,7 @@ ConstNotionalCrossCurrencyFixedVsFloatingSwap::ConstNotionalCrossCurrencyFixedVs
                        .withPaymentLag(floatPaymentLag_)
                        .withPaymentCalendar(floatPaymentCalendar_)
                        .withIndexedCoupons(useIndexedCoupons_)
-                       .withStubIndexConfig(floatStubIndexConfig_);
+                       .withStubIndexSelection(floatStubIndexSelection_);
     }
 
     // Register with each floating rate coupon

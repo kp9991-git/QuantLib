@@ -26,6 +26,7 @@
 #define quantlib_basisswapratehelpers_hpp
 
 #include <ql/cashflows/iborcoupon.hpp>
+#include <ql/cashflows/stubiborcoupon.hpp>
 #include <ql/cashflows/rateaveraging.hpp>
 #include <ql/termstructures/yield/ratehelpers.hpp>
 #include <ql/time/dategenerationrule.hpp>
@@ -63,8 +64,8 @@ namespace QuantLib {
                                     std::optional<bool> useIndexedCoupons = std::nullopt,
                                     DateGeneration::Rule rule = DateGeneration::Backward,
                                     Integer paymentLag = 0,
-                                    StubIndexConfig baseStubIndexConfig = {},
-                                    StubIndexConfig otherStubIndexConfig = {});
+                                    StubIndexSelection baseStubIndexSelection = {},
+                                    StubIndexSelection otherStubIndexSelection = {});
 
         Real impliedQuote() const override;
         ImpliedQuoteSensitivities impliedQuoteSensitivitiesByCurve() const override;
@@ -87,8 +88,8 @@ namespace QuantLib {
         std::optional<bool> useIndexedCoupons_;
         DateGeneration::Rule rule_;
         Integer paymentLag_;
-        StubIndexConfig baseStubIndexConfig_;
-        StubIndexConfig otherStubIndexConfig_;
+        StubIndexSelection baseStubIndexSelection_;
+        StubIndexSelection otherStubIndexSelection_;
 
         ext::shared_ptr<Swap> swap_;
 
@@ -123,7 +124,7 @@ namespace QuantLib {
         basisOnIborLeg solves for a margin quoted on the ibor leg instead.
 
         A stub-index configuration can be passed for the ibor leg; it is
-        applied to that leg's irregular coupons (see StubIndexConfig).
+        applied to that leg's irregular coupons (see StubIndexSelection).
         Since the candidate indices keep their own forwarding curves,
         this is only allowed when bootstrapBaseCurve is true, i.e. when
         the ibor index has an exogenous forecast curve; otherwise the
@@ -148,7 +149,7 @@ namespace QuantLib {
                                          RateAveraging::Type averagingMethod = RateAveraging::Compound,
                                          bool telescopicValueDates = false,
                                          bool basisOnIborLeg = false,
-                                         StubIndexConfig iborStubIndexConfig = {});
+                                         StubIndexSelection iborStubIndexSelection = {});
 
         Real impliedQuote() const override;
         ImpliedQuoteSensitivities impliedQuoteSensitivitiesByCurve() const override;
@@ -175,7 +176,7 @@ namespace QuantLib {
         RateAveraging::Type averagingMethod_;
         bool telescopicValueDates_;
         bool basisOnIborLeg_;
-        StubIndexConfig iborStubIndexConfig_;
+        StubIndexSelection iborStubIndexSelection_;
 
         ext::shared_ptr<Swap> swap_;
 
