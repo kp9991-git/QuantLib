@@ -50,7 +50,8 @@ namespace QuantLib {
                     targets_.push_back(target);
             }
 
-            const std::vector<CurveId>& targets() const { return targets_; }
+            //! by value: callers often iterate the targets of a temporary
+            std::vector<CurveId> targets() const { return targets_; }
 
           private:
             std::vector<CurveId> targets_;
