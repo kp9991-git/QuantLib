@@ -32,9 +32,9 @@
 #include <ql/pricingengines/swap/discountingswapengine.hpp>
 #include <ql/termstructures/yield/piecewiseyieldcurve.hpp>
 #include <ql/termstructures/yield/zerospreadedtermstructure.hpp>
-#include <ql/utilities/null_deleter.hpp>
 #include <ql/time/calendars/newzealand.hpp>
 #include <ql/time/calendars/unitedstates.hpp>
+#include <ql/utilities/null_deleter.hpp>
 
 using namespace QuantLib;
 using namespace boost::unit_test_framework;
@@ -723,6 +723,8 @@ BOOST_AUTO_TEST_CASE(testOvernightIborStubIndexBootstrap) {
     for (const auto& h : helpers)
         QL_CHECK_SMALL(h->impliedQuote() - h->quote()->value(), 1e-10);
 
+    checkAnalyticQuoteSensitivities(helpers, "overnight-ibor basis swap with stub");
+
     // the selection is rejected when the ibor forecast curve is the one being bootstrapped
     auto overnightWithCurve = ext::make_shared<OvernightIndex>(
         "Nzionia", 0, NZDCurrency(), calendar, Actual365Fixed(), shortForecastCurve);
@@ -787,6 +789,8 @@ BOOST_AUTO_TEST_CASE(testIborIborStubIndexBootstrap) {
     curve->discount(1.0);
     for (const auto& h : helpers)
         QL_CHECK_SMALL(h->impliedQuote() - h->quote()->value(), 1e-10);
+
+    checkAnalyticQuoteSensitivities(helpers, "ibor-ibor basis swap with stub");
 
     // the selection is rejected on the leg whose curve is being bootstrapped
     BOOST_CHECK_THROW(
