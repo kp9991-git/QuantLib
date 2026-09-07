@@ -1410,7 +1410,7 @@ BOOST_AUTO_TEST_CASE(testResettingBasisSwapsWithInterpolatedStubIndex) {
     auto bkbm3m = ext::make_shared<Bkbm3M>(baseProjection);
     auto sofr = ext::make_shared<Sofr>(usdProjection);
 
-    StubIndexSelection stubIndexSelection{StubIndexConvention::Interpolated,
+    StubIndexSelection stubIndexSelection{StubIndexSelection::Interpolated,
                                         {bkbm2m, bkbm3m}};
 
     Handle<YieldTermStructure> collateralHandle = usdProjection;
@@ -1504,7 +1504,7 @@ BOOST_AUTO_TEST_CASE(testConstNotionalBasisSwapsWithInterpolatedStubIndex) {
     auto bkbm3m = ext::make_shared<Bkbm3M>(baseProjection);
     auto sofr = ext::make_shared<Sofr>(usdProjection);
 
-    StubIndexSelection stubIndexSelection{StubIndexConvention::Interpolated, {bkbm2m, bkbm3m}};
+    StubIndexSelection stubIndexSelection{StubIndexSelection::Interpolated, {bkbm2m, bkbm3m}};
 
     Handle<YieldTermStructure> collateralHandle = usdProjection;
 
@@ -1586,7 +1586,7 @@ BOOST_AUTO_TEST_CASE(testBasisSwapsWithQuoteLegStubIndex) {
     auto bkbm3m = ext::make_shared<Bkbm3M>(quoteProjection);
     auto sofr = ext::make_shared<Sofr>(usdProjection);
 
-    StubIndexSelection quoteConfig{StubIndexConvention::Interpolated, {bkbm2m, bkbm3m}};
+    StubIndexSelection quoteConfig{StubIndexSelection::Interpolated, {bkbm2m, bkbm3m}};
 
     // collateral in the base currency (USD), so the bootstrapped curve
     // discounts the quote-currency (NZD) leg
@@ -1676,7 +1676,7 @@ BOOST_AUTO_TEST_CASE(testFixedVsFloatingSwapsWithFloatLegStubIndex) {
     auto bkbm2m = ext::make_shared<Bkbm2M>(shortProjection);
     auto bkbm3m = ext::make_shared<Bkbm3M>(floatProjection);
 
-    StubIndexSelection floatConfig{StubIndexConvention::Interpolated, {bkbm2m, bkbm3m}};
+    StubIndexSelection floatConfig{StubIndexSelection::Interpolated, {bkbm2m, bkbm3m}};
 
     Handle<YieldTermStructure> collateralHandle = usdCollateral;
 
