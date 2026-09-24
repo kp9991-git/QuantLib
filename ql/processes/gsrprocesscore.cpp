@@ -129,7 +129,7 @@ Real GsrProcessCore::expectation_rn_part(const Time w,
                 res2 *= exp(-2.0 * rev(j) * (time2(j + 1) - time2(j)));
             // zeta_k beta_k
             const Real b = cappedTime(k + 1, t) - flooredTime(k, w);
-            res2 *= b * (revZero(k) ? Real(1.0) : Real(exp(2.0 * rev(k) * (time2(k) - cappedTime(k + 1, t))) * exprel(rev(k) * b)));
+            res2 *= b * (revZero(k) ? Real(1.0) : Real(exp(rev(k) * (2.0 * time2(k) - flooredTime(k, w) - cappedTime(k + 1, t))) * exprel(-rev(k) * b)));
             // add to sum
             res += res2;
         }
@@ -182,7 +182,7 @@ Real GsrProcessCore::expectation_tf_part(const Time w,
                 res3 *= exp(-rev(j) * (time2(j + 1) - time2(j)));
             // zeta_k gamma_k
             const Real b = cappedTime(k + 1, t) - flooredTime(k, w);
-            res3 *= b * (revZero(k) ? Real(1.0) : Real(exp(rev(k) * (2.0 * flooredTime(k, w) - cappedTime(k + 1, t) - time2(k + 1))) * exprel(2.0 * rev(k) * b)));
+            res3 *= b * (revZero(k) ? Real(1.0) : Real(exp(rev(k) * (cappedTime(k + 1, t) - time2(k + 1))) * exprel(-2.0 * rev(k) * b)));
             // add to sum
             res2 += res3;
         }
